@@ -8,7 +8,7 @@
 - **프레임워크**: Spring Boot 3.5.5 + WebFlux
 - **언어**: Kotlin 1.9.25
 - **데이터베이스**: AWS DynamoDB
-- **통신**: gRPC (inventory-svc), REST API
+- **통신**: gRPC (inventory-api), REST API
 - **이벤트**: AWS EventBridge + Outbox 패턴
 - **보안**: JWT OIDC + Spring Security
 - **관측성**: Micrometer + OTLP + 구조화 로깅

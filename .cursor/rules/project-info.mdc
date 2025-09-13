@@ -44,7 +44,7 @@ alwaysApply: true
 에러 포맷 (공통):  
 { "error": { "code": "STRING_CODE", "message": "..." } }
 
-## 4) gRPC 연동 (inventory-svc)
+## 4) gRPC 연동 (inventory-api)
 - 메서드:
   - CheckAvailability(event_id, seat_ids|qty)
   - CommitReservation(reservation_id, event_id, seat_ids|qty, payment_intent_id)
