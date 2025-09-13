@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package inventory.v1;
+
+option java_multiple_files = true;
+option java_package = "com.traffictacos.reservation.grpc.inventory";
+option java_outer_classname = "InventoryProto";
+
+// Inventory service for seat management
+service Inventory {
+  // Check seat availability
+  rpc CheckAvailability(CheckAvailabilityRequest) returns (CheckAvailabilityResponse);
+
+  // Commit reservation (deduct seats)
+  rpc CommitReservation(CommitReservationRequest) returns (CommitReservationResponse);
+
+  // Release seat hold
+  rpc ReleaseHold(ReleaseHoldRequest) returns (ReleaseHoldResponse);
+}
+
+// Request/Response messages
+message CheckAvailabilityRequest {
+  string event_id = 1;
+  repeated string seat_ids = 2;
+  int32 qty = 3;
+}
+
+message CheckAvailabilityResponse {
+  bool available = 1;
+  repeated string unavailable_seats = 2;
+  string message = 3;
+}
+
+message CommitReservationRequest {
+  string reservation_id = 1;
+  string event_id = 2;
+  repeated string seat_ids = 3;
+  int32 qty = 4;
+  string payment_intent_id = 5;
+}
+
+message CommitReservationResponse {
+  bool success = 1;
+  string order_id = 2;
+  string message = 3;
+}
+
+message ReleaseHoldRequest {
+  string reservation_id = 1;
+  string event_id = 2;
+  repeated string seat_ids = 3;
+  int32 qty = 4;
+}
+
+message ReleaseHoldResponse {
+  bool success = 1;
+  string message = 2;
+}

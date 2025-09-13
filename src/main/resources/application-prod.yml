@@ -1,0 +1,144 @@
+# Production Configuration for High Performance
+spring:
+  profiles:
+    active: prod
+
+  # Performance optimized Jackson configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: NON_NULL
+
+  # Optimized Tomcat configuration
+  tomcat:
+    max-http-header-size: 8192
+    connection-timeout: 20000
+    keep-alive-timeout: 20000
+    threads:
+      max: 200
+      min-spare: 10
+
+# AWS Configuration (Production)
+aws:
+  region: ap-northeast-2
+
+# Database Configuration
+app:
+  dynamodb:
+    tables:
+      reservations: reservations-prod
+      orders: orders-prod
+      idempotency: idempotency-prod
+      outbox: outbox-prod
+
+# gRPC Configuration
+grpc:
+  client:
+    inventory:
+      address: ${INVENTORY_GRPC_ADDRESS:inventory-service.traffic-tacos.svc.cluster.local:9090}
+      negotiation-type: tls
+
+# Resilience4j Production Configuration
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowSize: 100
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10000
+        permittedNumberOfCallsInHalfOpenState: 5
+        slowCallRateThreshold: 80
+        slowCallDurationThreshold: 3000
+
+  retry:
+    configs:
+      default:
+        maxAttempts: 3
+        waitDuration: 1000
+        retryExceptions:
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+          - io.grpc.StatusRuntimeException
+
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 500ms
+        cancelRunningFuture: true
+
+  # Specific configurations
+  circuitbreaker:
+    instances:
+      inventoryGrpc:
+        baseConfig: default
+        failureRateThreshold: 30
+      dynamoDb:
+        baseConfig: default
+        failureRateThreshold: 20
+        waitDurationInOpenState: 30000
+
+  retry:
+    instances:
+      inventoryGrpc:
+        baseConfig: default
+        maxAttempts: 2
+      dynamoDb:
+        baseConfig: default
+
+  timelimiter:
+    instances:
+      inventoryGrpc:
+        timeoutDuration: 250ms
+      dynamoDb:
+        timeoutDuration: 1000ms
+      restApi:
+        timeoutDuration: 600ms
+
+# Observability Production Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      otlp:
+        enabled: true
+        endpoint: ${OTLP_ENDPOINT:http://otel-collector.traffic-tacos.svc.cluster.local:4318/v1/metrics}
+        step: 10s
+    tags:
+      service: reservation-api
+      version: 1.0.0
+
+# Logging Production Configuration
+logging:
+  level:
+    root: INFO
+    com.traffictacos.reservation: INFO
+    software.amazon.awssdk: WARN
+    io.grpc: WARN
+    org.springframework.security: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: /app/logs/reservation-api.log
+    max-size: 100MB
+    max-history: 30
+
+# Performance Monitoring
+app:
+  monitoring:
+    enable-detailed-metrics: true
+    slow-query-threshold: 1000ms
+    memory-usage-threshold: 80
+
+# JVM Performance Settings (should be set via environment variables)
+# JVM_OPTS="-Xms2g -Xmx4g -XX:+UseG1GC -XX:+UseContainerSupport -XX:MaxGCPauseMillis=200 -XX:G1HeapRegionSize=16m"

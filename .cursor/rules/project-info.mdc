@@ -1,0 +1,81 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+당신은 Kotlin(Spring Boot 3.5.5, Java 17) 기반의 고성능 예약 서비스(reservation-api)를 구현하는 시니어 백엔드 엔지니어입니다.  
+인프라/배포는 이미 준비되어 있으므로, 애플리케이션 코드와 계약/도메인/관측/테스트에만 집중하세요.
+
+## 1) 프로젝트 컨텍스트
+- Gradle (Kotlin DSL), Kotlin 언어
+- 그룹: com.traffictacos
+- 아티팩트: reservation-api
+- 패키지: com.traffictacos.reservation
+- 설명: "Ticket Reservation API Service (Spring Boot, Cloud-Native)"
+- Dependencies (이미 선택됨): Spring WebFlux, Spring Security, Spring Boot Actuator, Validation, Spring gRPC, Prometheus, OTLP for metrics
+- 추가 수동 의존성: AWS SDK v2 (DynamoDB, EventBridge), resilience4j, jackson-module-kotlin
+
+## 2) 도메인 모델 (DynamoDB)
+- reservations(pk=reservation_id, attrs: event_id, user_id, qty, seat_ids[], status, hold_expires_at, idempotency_key, created_at, updated_at)
+- orders(pk=order_id, attrs: reservation_id, event_id, amount, status, created_at)
+- idempotency(pk=idempotency_key, attrs: request_hash, response_snapshot, ttl)
+- outbox(pk=outbox_id, attrs: type, payload, status, attempts, next_retry_at)
+
+## 3) REST API 스펙
+- `POST /v1/reservations`  
+  Headers: Idempotency-Key  
+  Body: {event_id, qty, seat_ids[], reservation_token}  
+  동작: 멱등성 검사 → DynamoDB에 HOLD 생성 → EventBridge Scheduler에 만료 등록  
+  응답: 201 {reservation_id, hold_expires_at}
+
+- `POST /v1/reservations/confirm`  
+  Body: {reservation_id, payment_intent_id}  
+  동작: 결제 승인 확인 → gRPC CommitReservation 호출 → CONFIRMED 상태 저장, order 생성  
+  응답: 200 {order_id, status}
+
+- `POST /v1/reservations/cancel`  
+  Body: {reservation_id}  
+  동작: gRPC ReleaseHold 호출 → CANCELLED 상태 저장  
+  응답: 200 {status}
+
+- `GET /v1/reservations/{id}`  
+  응답: {reservation_id, status, hold_expires_at}
+
+에러 포맷 (공통):  
+{ "error": { "code": "STRING_CODE", "message": "..." } }
+
+## 4) gRPC 연동 (inventory-svc)
+- 메서드:
+  - CheckAvailability(event_id, seat_ids|qty)
+  - CommitReservation(reservation_id, event_id, seat_ids|qty, payment_intent_id)
+  - ReleaseHold(reservation_id, event_id, seat_ids|qty)
+- 타임아웃: 250ms, Commit은 재시도 금지
+
+## 5) 멱등성/만료/이벤트
+- 멱등성: DynamoDB idempotency 테이블, TTL=5분
+- 만료: EventBridge Scheduler 60초 후 expireReservation 호출
+- 이벤트 발행: outbox 테이블 기록 → 별도 이벤트 발행기 전송 (코드 구조만)
+
+## 6) 보안
+- Spring Security Resource Server (JWT OIDC)
+- Authorization: Bearer <JWT>, aud/iss/exp 검증
+- 민감 데이터 로깅 금지
+
+## 7) 관측/메트릭
+- Micrometer Prometheus: http_server_requests, grpc_client_duration, reservation_status_total
+- OTLP Exporter: traceparent 전파, end-to-end 분산 트레이싱
+- JSON 구조 로그: ts, level, route, status, latency, reservation_id, trace_id
+
+## 8) 성능/복원력
+- 목표: P95 < 120ms (확정 제외)
+- WebFlux Netty, Jackson Afterburner, gRPC 채널 재사용
+- resilience4j: REST=600ms timeout, gRPC=250ms timeout, retry(멱등만), circuit breaker
+
+## 9) 산출물
+- 코드 구조:
+  - controller/, dto/, service/, repository/, grpc/, config/, security/, observability/, workflow/
+- OpenAPI spec: openapi/reservation.yaml
+- proto: proto/inventory.proto (클라 코드 생성 포함)
+- tests: unit + integration(Testcontainers DynamoDB Local, gRPC stub)
+- scripts: run_local.sh, generate_proto.sh
+- README: 아키텍처, 엔드포인트, 설정키, 실행방법
