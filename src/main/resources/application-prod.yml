@@ -24,14 +24,7 @@ spring:
 aws:
   region: ap-northeast-2
 
-# Database Configuration
-app:
-  dynamodb:
-    tables:
-      reservations: reservations-prod
-      orders: orders-prod
-      idempotency: idempotency-prod
-      outbox: outbox-prod
+# Database Configuration (Production)
 
 # gRPC Configuration
 grpc:
@@ -133,12 +126,16 @@ logging:
     max-size: 100MB
     max-history: 30
 
-# Performance Monitoring
-app:
-  monitoring:
-    enable-detailed-metrics: true
-    slow-query-threshold: 1000ms
-    memory-usage-threshold: 80
+# Performance Monitoring (configured via environment variables in production)
+
+# SpringDoc OpenAPI Configuration (Production - API docs only, no UI)
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    enabled: false
+  paths-to-match: /v1/**
 
 # JVM Performance Settings (should be set via environment variables)
 # JVM_OPTS="-Xms2g -Xmx4g -XX:+UseG1GC -XX:+UseContainerSupport -XX:MaxGCPauseMillis=200 -XX:G1HeapRegionSize=16m"

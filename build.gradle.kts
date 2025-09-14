@@ -28,6 +28,8 @@ dependencies {
 	// Spring Boot Starters
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-security")
+	implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+	implementation("org.springframework.boot:spring-boot-starter-aop")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-webflux")  // WebFlux for high performance
 	implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
@@ -55,9 +57,18 @@ dependencies {
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
 
+	// Annotations
+	implementation("javax.annotation:javax.annotation-api:1.3.2")
+
 	// Observability
 	runtimeOnly("io.micrometer:micrometer-registry-otlp")
 	runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+
+	// Logging
+	runtimeOnly("net.logstash.logback:logstash-logback-encoder:7.4")
+
+	// OpenAPI/Swagger
+	implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:2.6.0")
 
 	// Test Dependencies
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
