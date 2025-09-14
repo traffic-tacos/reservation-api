@@ -8,10 +8,12 @@ import org.aspectj.lang.annotation.Around
 import org.aspectj.lang.annotation.Aspect
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import org.springframework.context.annotation.Profile
 import java.time.Duration
 
 @Aspect
 @Component
+@Profile("!local")
 class PerformanceMonitoringConfig(
     private val meterRegistry: MeterRegistry
 ) {
@@ -23,30 +25,32 @@ class PerformanceMonitoringConfig(
         val methodName = joinPoint.signature.name
         val className = joinPoint.signature.declaringType.simpleName
 
-        val timer = Timer.builder("service.method.duration")
-            .tag("class", className)
-            .tag("method", methodName)
-            .publishPercentiles(0.5, 0.95, 0.99)
-            .publishPercentileHistogram()
-            .register(meterRegistry)
-
         val sample = Timer.start(meterRegistry)
 
         return try {
             val result = joinPoint.proceed()
+            sample.stop(Timer.builder("service.method.duration")
+                .tag("class", className)
+                .tag("method", methodName)
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .publishPercentileHistogram()
+                .register(meterRegistry))
 
-            sample.stop(timer)
-
-            // Log slow methods
-            val duration = sample.duration()
-            if (duration > Duration.ofMillis(1000)) {
-                logger.warn("Slow service method: {}.{} took {}ms",
-                    className, methodName, duration.toMillis())
-            }
+            // Record success
+            Counter.builder("service.method.success")
+                .tag("class", className)
+                .tag("method", methodName)
+                .register(meterRegistry)
+                .increment()
 
             result
         } catch (e: Exception) {
-            // Record error metrics
+            sample.stop(Timer.builder("service.method.duration")
+                .tag("class", className)
+                .tag("method", methodName)
+                .register(meterRegistry))
+
+            // Record failure
             Counter.builder("service.method.error")
                 .tag("class", className)
                 .tag("method", methodName)
@@ -54,7 +58,32 @@ class PerformanceMonitoringConfig(
                 .register(meterRegistry)
                 .increment()
 
-            sample.stop(timer)
+            throw e
+        }
+    }
+
+    // Controller method performance monitoring
+    @Around("execution(* com.traffictacos.reservation.controller.*.*(..))")
+    fun monitorControllerMethods(joinPoint: ProceedingJoinPoint): Any? {
+        val methodName = joinPoint.signature.name
+        val className = joinPoint.signature.declaringType.simpleName
+
+        val sample = Timer.start(meterRegistry)
+
+        return try {
+            val result = joinPoint.proceed()
+            sample.stop(Timer.builder("controller.method.duration")
+                .tag("class", className)
+                .tag("method", methodName)
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .publishPercentileHistogram()
+                .register(meterRegistry))
+            result
+        } catch (e: Exception) {
+            sample.stop(Timer.builder("controller.method.duration")
+                .tag("class", className)
+                .tag("method", methodName)
+                .register(meterRegistry))
             throw e
         }
     }
@@ -65,78 +94,21 @@ class PerformanceMonitoringConfig(
         val methodName = joinPoint.signature.name
         val className = joinPoint.signature.declaringType.simpleName
 
-        val timer = Timer.builder("repository.method.duration")
-            .tag("class", className)
-            .tag("method", methodName)
-            .publishPercentiles(0.5, 0.95, 0.99)
-            .register(meterRegistry)
-
         val sample = Timer.start(meterRegistry)
 
         return try {
             val result = joinPoint.proceed()
-
-            sample.stop(timer)
-
-            // Log slow database operations
-            val duration = sample.duration()
-            if (duration > Duration.ofMillis(500)) {
-                logger.warn("Slow repository method: {}.{} took {}ms",
-                    className, methodName, duration.toMillis())
-            }
-
-            result
-        } catch (e: Exception) {
-            // Record database error metrics
-            Counter.builder("repository.method.error")
+            sample.stop(Timer.builder("repository.method.duration")
                 .tag("class", className)
                 .tag("method", methodName)
-                .tag("exception", e.javaClass.simpleName)
-                .register(meterRegistry)
-                .increment()
-
-            sample.stop(timer)
-            throw e
-        }
-    }
-
-    // gRPC call performance monitoring
-    @Around("execution(* com.traffictacos.reservation.grpc.*.*(..))")
-    fun monitorGrpcCalls(joinPoint: ProceedingJoinPoint): Any? {
-        val methodName = joinPoint.signature.name
-        val className = joinPoint.signature.declaringType.simpleName
-
-        val timer = Timer.builder("grpc.call.duration")
-            .tag("class", className)
-            .tag("method", methodName)
-            .publishPercentiles(0.5, 0.95, 0.99)
-            .register(meterRegistry)
-
-        val sample = Timer.start(meterRegistry)
-
-        return try {
-            val result = joinPoint.proceed()
-
-            sample.stop(timer)
-
-            // Log slow gRPC calls
-            val duration = sample.duration()
-            if (duration > Duration.ofMillis(200)) {
-                logger.warn("Slow gRPC call: {}.{} took {}ms",
-                    className, methodName, duration.toMillis())
-            }
-
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(meterRegistry))
             result
         } catch (e: Exception) {
-            // Record gRPC error metrics
-            Counter.builder("grpc.call.error")
+            sample.stop(Timer.builder("repository.method.duration")
                 .tag("class", className)
                 .tag("method", methodName)
-                .tag("exception", e.javaClass.simpleName)
-                .register(meterRegistry)
-                .increment()
-
-            sample.stop(timer)
+                .register(meterRegistry))
             throw e
         }
     }

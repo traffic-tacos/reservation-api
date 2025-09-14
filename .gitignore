@@ -49,3 +49,7 @@ grafana_data/
 
 # Application specific
 HELP.md
+
+# Backup files
+backup/
+*.bak

@@ -2,6 +2,7 @@ package com.traffictacos.reservation.config
 
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpMethod
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity
 import org.springframework.security.config.web.server.ServerHttpSecurity
@@ -9,7 +10,6 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverterAdapter
 import org.springframework.security.web.server.SecurityWebFilterChain
 import org.springframework.security.web.server.authorization.ServerAccessDeniedHandler
-import org.springframework.security.web.server.authorization.ServerAuthenticationEntryPoint
 import reactor.core.publisher.Mono
 
 @Configuration
@@ -17,11 +17,24 @@ import reactor.core.publisher.Mono
 class SecurityConfig {
 
     @Bean
+    @Profile("local")
+    fun localSecurityWebFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
+        return http
+            .csrf { it.disable() }
+            .cors { it.disable() }
+            .authorizeExchange { exchanges ->
+                exchanges
+                    .anyExchange().permitAll()
+            }
+            .build()
+    }
+
+    @Bean
+    @Profile("!local")
     fun securityWebFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
         return http
             .csrf { it.disable() }
-            .cors { it.disable() } // Configure CORS if needed
-
+            .cors { it.disable() }
             .authorizeExchange { exchanges ->
                 exchanges
                     // Public endpoints (no authentication required)
@@ -33,7 +46,6 @@ class SecurityConfig {
                     // All other endpoints require authentication
                     .anyExchange().authenticated()
             }
-
             .oauth2ResourceServer { oauth2 ->
                 oauth2
                     .jwt { jwt ->
@@ -42,11 +54,11 @@ class SecurityConfig {
                     .authenticationEntryPoint(authenticationEntryPoint())
                     .accessDeniedHandler(accessDeniedHandler())
             }
-
             .build()
     }
 
     @Bean
+    @Profile("!local")
     fun jwtAuthenticationConverter(): ReactiveJwtAuthenticationConverterAdapter {
         val jwtAuthenticationConverter = JwtAuthenticationConverter()
 
@@ -63,8 +75,9 @@ class SecurityConfig {
     }
 
     @Bean
-    fun authenticationEntryPoint(): ServerAuthenticationEntryPoint {
-        return ServerAuthenticationEntryPoint { exchange, _ ->
+    @Profile("!local")
+    fun authenticationEntryPoint(): org.springframework.security.web.server.ServerAuthenticationEntryPoint {
+        return org.springframework.security.web.server.ServerAuthenticationEntryPoint { exchange, _ ->
             exchange.response.statusCode = org.springframework.http.HttpStatus.UNAUTHORIZED
             exchange.response.headers.contentType = org.springframework.http.MediaType.APPLICATION_JSON
 
@@ -83,6 +96,7 @@ class SecurityConfig {
     }
 
     @Bean
+    @Profile("!local")
     fun accessDeniedHandler(): ServerAccessDeniedHandler {
         return ServerAccessDeniedHandler { exchange, _ ->
             exchange.response.statusCode = org.springframework.http.HttpStatus.FORBIDDEN

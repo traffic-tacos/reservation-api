@@ -5,10 +5,12 @@ import io.micrometer.core.instrument.Tags
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Profile
 import org.springframework.scheduling.annotation.Scheduled
 import javax.annotation.PostConstruct
 
 @Configuration
+@Profile("!local")
 class ObservabilityConfig(
     private val meterRegistry: MeterRegistry,
     @Value("\${spring.application.name}") private val applicationName: String
@@ -28,31 +30,12 @@ class ObservabilityConfig(
                 .meters()
                 .groupBy { it.id.tags.firstOrNull { tag -> tag.key == "uri" }?.value }
                 .mapValues { (_, meters) ->
-                    meters.sumOf { meter ->
-                        meter.measure().firstOrNull()?.value?.toLong() ?: 0L
-                    }
+                    meters.sumOf { it.measure().firstOrNull()?.value ?: 0.0 }
                 }
 
-            if (httpRequests.isNotEmpty()) {
-                logger.info("HTTP Request Metrics: {}", httpRequests)
-            }
-
-            // Log reservation status counts
-            val reservationStatuses = meterRegistry.find("reservation.status.total")
-                .meters()
-                .groupBy { it.id.tags.firstOrNull { tag -> tag.key == "status" }?.value }
-                .mapValues { (_, meters) ->
-                    meters.sumOf { meter ->
-                        meter.measure().firstOrNull()?.value?.toLong() ?: 0L
-                    }
-                }
-
-            if (reservationStatuses.isNotEmpty()) {
-                logger.info("Reservation Status Metrics: {}", reservationStatuses)
-            }
-
+            logger.info("Health metrics - HTTP requests: {}", httpRequests)
         } catch (e: Exception) {
-            logger.warn("Error logging health metrics", e)
+            logger.warn("Failed to collect health metrics", e)
         }
     }
 }
