@@ -36,6 +36,8 @@ dependencies {
 
 	// Performance Optimization
 	implementation("com.fasterxml.jackson.module:jackson-module-afterburner")  // Jackson Afterburner
+	implementation("com.github.ben-manes.caffeine:caffeine:3.1.8")  // High-performance caching
+	implementation("io.micrometer:micrometer-core")  // Metrics for cache monitoring
 
 	// gRPC
 	implementation("io.grpc:grpc-services")

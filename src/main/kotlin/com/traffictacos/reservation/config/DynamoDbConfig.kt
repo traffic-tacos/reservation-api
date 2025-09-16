@@ -5,18 +5,18 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.regions.Region
-import software.amazon.awssdk.services.dynamodb.DynamoDbClient
+import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import java.net.URI
 
 @Configuration
 class DynamoDbConfig {
 
     @Bean
-    fun dynamoDbClient(
+    fun dynamoDbAsyncClient(
         @Value("\${aws.region}") region: String,
         @Value("\${aws.dynamodb.endpoint}") endpoint: String
-    ): DynamoDbClient {
-        return DynamoDbClient.builder()
+    ): DynamoDbAsyncClient {
+        return DynamoDbAsyncClient.builder()
             .region(Region.of(region))
             .credentialsProvider(DefaultCredentialsProvider.create())
             .endpointOverride(URI.create(endpoint))

@@ -1,45 +1,84 @@
 package com.traffictacos.reservation.grpc
 
-import com.traffictacos.reservation.grpc.inventory.CheckAvailabilityRequest
-import com.traffictacos.reservation.grpc.inventory.CheckAvailabilityResponse
-import com.traffictacos.reservation.grpc.inventory.CommitReservationRequest
-import com.traffictacos.reservation.grpc.inventory.CommitReservationResponse
-import com.traffictacos.reservation.grpc.inventory.InventoryGrpc
-import com.traffictacos.reservation.grpc.inventory.ReleaseHoldRequest
-import com.traffictacos.reservation.grpc.inventory.ReleaseHoldResponse
+import com.traffictacos.inventory.v1.CheckReq
+import com.traffictacos.inventory.v1.CheckRes
+import com.traffictacos.inventory.v1.CommitReq
+import com.traffictacos.inventory.v1.CommitRes
+import com.traffictacos.inventory.v1.ReleaseReq
+import com.traffictacos.inventory.v1.ReleaseRes
+import com.traffictacos.inventory.v1.InventoryGrpcKt
 import io.grpc.ManagedChannel
-import org.slf4j.LoggerFactory
-import org.springframework.stereotype.Service
+import io.grpc.StatusException
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Timer
+import kotlinx.coroutines.withTimeout
+import mu.KotlinLogging
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.stereotype.Component
 import reactor.core.publisher.Mono
-import java.util.concurrent.TimeUnit
+import reactor.kotlin.core.publisher.toMono
+import java.time.Duration
 
-@Service
+private val logger = KotlinLogging.logger {}
+
+data class AvailabilityResponse(
+    val available: Boolean,
+    val unavailableSeats: List<String> = emptyList()
+)
+
+data class CommitResponse(
+    val orderId: String,
+    val status: String
+)
+
+data class ReleaseResponse(
+    val status: String
+)
+
+@Component
 class InventoryGrpcClient(
-    private val inventoryChannel: ManagedChannel
+    private val inventoryChannel: ManagedChannel,
+    private val meterRegistry: MeterRegistry,
+    @Value("\${grpc.client.inventory.timeout:250ms}") private val timeoutDuration: Duration
 ) {
-    private val logger = LoggerFactory.getLogger(InventoryGrpcClient::class.java)
-    private val stub = InventoryGrpc.newFutureStub(inventoryChannel)
+    
+    private val stub = InventoryGrpcKt.InventoryCoroutineStub(inventoryChannel)
+    
+    companion object {
+        private const val GRPC_CALL_COUNTER = "grpc_calls_total"
+        private const val GRPC_CALL_DURATION = "grpc_call_duration"
+        private const val GRPC_ERROR_COUNTER = "grpc_errors_total"
+    }
 
-    fun checkAvailability(eventId: String, seatIds: List<String>, qty: Int): Mono<CheckAvailabilityResponse> {
+    fun checkAvailability(eventId: String, seatIds: List<String>, quantity: Int): Mono<AvailabilityResponse> {
+        val timer = Timer.start(meterRegistry)
+        
         return Mono.fromCallable {
-            logger.debug("Checking availability for event: {}, seats: {}, qty: {}", eventId, seatIds, qty)
-
-            val request = CheckAvailabilityRequest.newBuilder()
+            val request = CheckReq.newBuilder()
                 .setEventId(eventId)
                 .addAllSeatIds(seatIds)
-                .setQty(qty)
+                .setQty(quantity)
                 .build()
-
-            val future = stub.withDeadlineAfter(250, TimeUnit.MILLISECONDS)
-                .checkAvailability(request)
-
-            val response = future.get(250, TimeUnit.MILLISECONDS)
-            logger.debug("Availability check result: available={}, unavailable={}",
-                response.available, response.unavailableSeatsList)
-
-            response
+            
+            logger.debug { "Checking availability for event=$eventId, seats=$seatIds, qty=$quantity" }
+            request
+        }.flatMap { request ->
+            executeWithTimeout("checkAvailability") {
+                stub.checkAvailability(request)
+            }.toMono()
+        }.map { response ->
+            AvailabilityResponse(
+                available = response.available,
+                unavailableSeats = response.unavailableSeatsList
+            )
+        }.doOnSuccess { response ->
+            meterRegistry.counter(GRPC_CALL_COUNTER, "method", "checkAvailability", "status", "success").increment()
+            timer.stop(Timer.Sample.builder(meterRegistry).register(GRPC_CALL_DURATION, "method", "checkAvailability"))
+            logger.debug { "Availability check completed: available=${response.available}" }
         }.doOnError { error ->
-            logger.error("Failed to check availability for event: {}", eventId, error)
+            meterRegistry.counter(GRPC_ERROR_COUNTER, "method", "checkAvailability", "error", error.javaClass.simpleName).increment()
+            timer.stop(Timer.Sample.builder(meterRegistry).register(GRPC_CALL_DURATION, "method", "checkAvailability"))
+            logger.error(error) { "Failed to check availability for event=$eventId" }
         }
     }
 
@@ -47,31 +86,39 @@ class InventoryGrpcClient(
         reservationId: String,
         eventId: String,
         seatIds: List<String>,
-        qty: Int,
+        quantity: Int,
         paymentIntentId: String
-    ): Mono<CommitReservationResponse> {
+    ): Mono<CommitResponse> {
+        val timer = Timer.start(meterRegistry)
+        
         return Mono.fromCallable {
-            logger.debug("Committing reservation: {}, event: {}, seats: {}",
-                reservationId, eventId, seatIds)
-
-            val request = CommitReservationRequest.newBuilder()
+            val request = CommitReq.newBuilder()
                 .setReservationId(reservationId)
                 .setEventId(eventId)
                 .addAllSeatIds(seatIds)
-                .setQty(qty)
+                .setQty(quantity)
                 .setPaymentIntentId(paymentIntentId)
                 .build()
-
-            val future = stub.withDeadlineAfter(250, TimeUnit.MILLISECONDS)
-                .commitReservation(request)
-
-            val response = future.get(250, TimeUnit.MILLISECONDS)
-            logger.debug("Reservation commit result: success={}, orderId={}",
-                response.success, response.orderId)
-
-            response
+            
+            logger.debug { "Committing reservation=$reservationId for event=$eventId, seats=$seatIds" }
+            request
+        }.flatMap { request ->
+            executeWithTimeout("commitReservation") {
+                stub.commitReservation(request)
+            }.toMono()
+        }.map { response ->
+            CommitResponse(
+                orderId = response.orderId,
+                status = response.status
+            )
+        }.doOnSuccess { response ->
+            meterRegistry.counter(GRPC_CALL_COUNTER, "method", "commitReservation", "status", "success").increment()
+            timer.stop(Timer.Sample.builder(meterRegistry).register(GRPC_CALL_DURATION, "method", "commitReservation"))
+            logger.info { "Reservation committed successfully: reservation=$reservationId, order=${response.orderId}" }
         }.doOnError { error ->
-            logger.error("Failed to commit reservation: {}", reservationId, error)
+            meterRegistry.counter(GRPC_ERROR_COUNTER, "method", "commitReservation", "error", error.javaClass.simpleName).increment()
+            timer.stop(Timer.Sample.builder(meterRegistry).register(GRPC_CALL_DURATION, "method", "commitReservation"))
+            logger.error(error) { "Failed to commit reservation=$reservationId" }
         }
     }
 
@@ -79,28 +126,61 @@ class InventoryGrpcClient(
         reservationId: String,
         eventId: String,
         seatIds: List<String>,
-        qty: Int
-    ): Mono<ReleaseHoldResponse> {
+        quantity: Int
+    ): Mono<ReleaseResponse> {
+        val timer = Timer.start(meterRegistry)
+        
         return Mono.fromCallable {
-            logger.debug("Releasing hold for reservation: {}, event: {}, seats: {}",
-                reservationId, eventId, seatIds)
-
-            val request = ReleaseHoldRequest.newBuilder()
+            val request = ReleaseReq.newBuilder()
                 .setReservationId(reservationId)
                 .setEventId(eventId)
                 .addAllSeatIds(seatIds)
-                .setQty(qty)
+                .setQty(quantity)
                 .build()
-
-            val future = stub.withDeadlineAfter(250, TimeUnit.MILLISECONDS)
-                .releaseHold(request)
-
-            val response = future.get(250, TimeUnit.MILLISECONDS)
-            logger.debug("Hold release result: success={}", response.success)
-
-            response
+            
+            logger.debug { "Releasing hold for reservation=$reservationId, event=$eventId, seats=$seatIds" }
+            request
+        }.flatMap { request ->
+            executeWithTimeout("releaseHold") {
+                stub.releaseHold(request)
+            }.toMono()
+        }.map { response ->
+            ReleaseResponse(status = response.status)
+        }.doOnSuccess { response ->
+            meterRegistry.counter(GRPC_CALL_COUNTER, "method", "releaseHold", "status", "success").increment()
+            timer.stop(Timer.Sample.builder(meterRegistry).register(GRPC_CALL_DURATION, "method", "releaseHold"))
+            logger.debug { "Hold released successfully: reservation=$reservationId, status=${response.status}" }
         }.doOnError { error ->
-            logger.error("Failed to release hold for reservation: {}", reservationId, error)
+            meterRegistry.counter(GRPC_ERROR_COUNTER, "method", "releaseHold", "error", error.javaClass.simpleName).increment()
+            timer.stop(Timer.Sample.builder(meterRegistry).register(GRPC_CALL_DURATION, "method", "releaseHold"))
+            logger.error(error) { "Failed to release hold for reservation=$reservationId" }
+        }
+    }
+
+    private suspend fun <T> executeWithTimeout(methodName: String, operation: suspend () -> T): T {
+        return try {
+            withTimeout(timeoutDuration.toMillis()) {
+                operation()
+            }
+        } catch (e: Exception) {
+            when (e) {
+                is StatusException -> {
+                    logger.warn { "gRPC error in $methodName: ${e.status}" }
+                    throw GrpcException("gRPC call failed: ${e.status.description}", e)
+                }
+                is kotlinx.coroutines.TimeoutCancellationException -> {
+                    logger.warn { "gRPC timeout in $methodName after ${timeoutDuration.toMillis()}ms" }
+                    throw GrpcTimeoutException("gRPC call timed out after ${timeoutDuration.toMillis()}ms", e)
+                }
+                else -> {
+                    logger.error(e) { "Unexpected error in gRPC $methodName" }
+                    throw GrpcException("Unexpected error in gRPC call", e)
+                }
+            }
         }
     }
 }
+
+// Custom exceptions for gRPC errors
+class GrpcException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+class GrpcTimeoutException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
