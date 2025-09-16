@@ -24,8 +24,12 @@ src/main/kotlin/com/traffictacos/reservation/
 ├── grpc/                # gRPC 클라이언트
 ├── config/              # 설정 클래스들
 ├── security/            # 보안 설정
-├── observability/       # 관측성 설정
-└── domain/              # 도메인 모델
+├── observability/       # 관측성 설정 (메트릭, 로깅, 트레이싱)
+├── performance/         # 성능 최적화 설정
+├── resilience/          # 복원력 패턴 구현
+├── exception/           # 예외 처리 클래스
+├── domain/              # 도메인 모델
+└── workflow/            # 비즈니스 워크플로우
 ```
 
 ## 🚀 빠른 시작
@@ -103,11 +107,32 @@ Content-Type: application/json
 }
 ```
 
+**응답:**
+```json
+{
+  "reservation_id": "rsv_abc123",
+  "hold_expires_at": "2024-01-01T12:05:00Z"
+}
+```
+
 ### 예약 확정
 ```http
 POST /v1/reservations/{reservationId}/confirm
 Authorization: Bearer <JWT>
 Idempotency-Key: <uuid>
+Content-Type: application/json
+
+{
+  "payment_intent_id": "pay_xyz789"
+}
+```
+
+**응답:**
+```json
+{
+  "order_id": "ord_xyz789",
+  "status": "CONFIRMED"
+}
 ```
 
 ### 예약 취소
@@ -117,11 +142,51 @@ Authorization: Bearer <JWT>
 Idempotency-Key: <uuid>
 ```
 
+**응답:**
+```json
+{
+  "status": "CANCELLED"
+}
+```
+
 ### 예약 조회
 ```http
 GET /v1/reservations/{reservationId}
 Authorization: Bearer <JWT>
 ```
+
+**응답:**
+```json
+{
+  "reservation_id": "rsv_abc123",
+  "status": "HOLD|CONFIRMED|CANCELLED",
+  "hold_expires_at": "2024-01-01T12:05:00Z"
+}
+```
+
+### 에러 응답 포맷
+```json
+{
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "human readable message",
+    "trace_id": "..."
+  }
+}
+```
+
+### 에러 코드 표
+| 코드 | HTTP | 설명 |
+|---|---|---|
+| `UNAUTHENTICATED` | 401 | JWT 누락/만료 |
+| `FORBIDDEN` | 403 | 권한 부족/허용 전 입장 |
+| `RATE_LIMITED` | 429 | 레이트 초과 |
+| `IDEMPOTENCY_REQUIRED` | 400 | 멱등성 키 누락 |
+| `IDEMPOTENCY_CONFLICT` | 409 | 동일 키 + 다른 요청 |
+| `RESERVATION_EXPIRED` | 409 | 홀드 만료 |
+| `PAYMENT_NOT_APPROVED` | 412 | 결제 승인 전 |
+| `INVENTORY_CONFLICT` | 409 | 재고 부족/충돌 |
+| `UPSTREAM_TIMEOUT` | 504 | 백엔드 타임아웃 |
 
 ## 🔧 구성 설정
 
@@ -158,6 +223,14 @@ Authorization: Bearer <JWT>
 - **Health Check**: `GET /actuator/health`
 - **메트릭**: `GET /actuator/metrics`
 - **Prometheus**: `GET /actuator/prometheus`
+- **OpenAPI**: `GET /v3/api-docs`
+- **Swagger UI**: `GET /swagger-ui.html`
+
+### 구조화 로깅
+- **JSON 포맷**: 모든 로그가 JSON으로 출력
+- **트레이싱**: OpenTelemetry trace_id 자동 포함
+- **비즈니스 메트릭**: 예약 상태별 카운트, 처리 시간
+- **보안**: 민감 데이터 마스킹 처리
 
 ### 로그 분석
 ```bash
@@ -166,13 +239,23 @@ tail -f logs/reservation-api.log
 
 # JSON 구조화 로그
 tail -f logs/reservation-api-json.log
+
+# 특정 예약 ID로 필터링
+grep "reservation_id.*rsv_abc123" logs/reservation-api-json.log
 ```
 
 ### 주요 메트릭
-- `http.server.requests`: HTTP 요청 메트릭
-- `grpc.call.duration`: gRPC 호출 성능
-- `reservation.status.total`: 예약 상태별 카운트
+- `http.server.requests`: HTTP 요청 메트릭 (P95, P99 지연시간)
+- `grpc.client.duration`: gRPC 호출 성능 (inventory-api)
+- `reservation.status.total`: 예약 상태별 카운트 (HOLD, CONFIRMED, CANCELLED)
 - `service.method.duration`: 서비스 메서드 성능
+- `idempotency.requests.total`: 멱등성 처리 메트릭
+- `outbox.events.published`: 이벤트 발행 메트릭
+
+### 분산 트레이싱
+- **OpenTelemetry**: 자동 계측 및 트레이스 수집
+- **Jaeger**: 트레이스 시각화 (로컬: http://localhost:16686)
+- **Trace Context**: 요청 간 트레이스 ID 전파
 
 ## 🔒 보안
 
@@ -192,12 +275,84 @@ tail -f logs/reservation-api-json.log
 - **P95 지연시간**: < 120ms (확정 제외)
 - **에러율**: < 1%
 - **30k RPS 처리**: 수평 확장 지원
+- **gRPC 타임아웃**: < 250ms (inventory-api 호출)
 
 ### 최적화 포인트
-- WebFlux 기반 비동기 처리
-- Jackson Afterburner 적용
-- 커넥션 풀 최적화
-- Resilience4j 복원력 패턴
+- **WebFlux**: 비동기 논블로킹 처리
+- **Jackson Afterburner**: JSON 직렬화 최적화
+- **커넥션 풀**: gRPC 채널 재사용 및 최적화
+- **Resilience4j**: Circuit Breaker, Retry, Timeout 패턴
+- **캐싱**: Redis 기반 멱등성 키 캐싱
+- **메모리**: JVM 힙 최적화 및 GC 튜닝
+
+### 복원력 패턴
+- **Circuit Breaker**: 외부 서비스 장애 격리
+- **Retry**: 일시적 오류 자동 재시도
+- **Timeout**: 응답 시간 제한
+- **Bulkhead**: 리소스 격리
+- **Rate Limiting**: 트래픽 제어
+
+## 🏗️ 데이터 모델
+
+### DynamoDB 테이블 구조
+
+#### Reservations 테이블
+```javascript
+// Primary Key
+pk: reservation_id  // "rsv_abc123"
+sk: event_id        // "evt_2025_1001"
+
+// Attributes
+user_id: "u123"
+status: "HOLD|CONFIRMED|CANCELLED"
+seat_ids: ["A-12", "A-13"]
+quantity: 2
+total_price: 50000
+hold_expires_at: "2024-01-01T12:05:00Z"
+idempotency_key: "uuid-v4"
+created_at: "2024-01-01T12:00:00Z"
+updated_at: "2024-01-01T12:00:00Z"
+```
+
+#### Orders 테이블
+```javascript
+// Primary Key
+pk: order_id        // "ord_xyz789"
+sk: reservation_id  // "rsv_abc123"
+
+// Attributes
+user_id: "u123"
+event_id: "evt_2025_1001"
+seat_ids: ["A-12", "A-13"]
+total_amount: 50000
+status: "CONFIRMED"
+payment_intent_id: "pay_xyz789"
+created_at: "2024-01-01T12:00:00Z"
+```
+
+#### Idempotency 테이블
+```javascript
+// Primary Key
+pk: idempotency_key  // "uuid-v4"
+
+// Attributes
+request_hash: "sha256_hash"
+response_snapshot: "json_response"
+ttl: 1640995200  // 5분 후 만료
+```
+
+#### Outbox 테이블
+```javascript
+// Primary Key
+pk: outbox_id  // "outbox_uuid"
+
+// Attributes
+type: "reservation.hold.created"
+payload: "json_event_data"
+status: "PENDING|PUBLISHED|FAILED"
+attempts: 0
+next_retry_at: "2024-01-01T12:01:00Z"
+```
 
 ## 🔧 개발 도구
 
@@ -334,18 +489,23 @@ test: 단위 테스트 추가
 ## 🎯 개발 로드맵
 
 - [x] 기본 아키텍처 구현
-- [x] DynamoDB 통합
-- [x] gRPC 클라이언트
-- [x] REST API 구현
-- [x] 보안 및 인증
-- [x] 관측성 및 모니터링
-- [x] 복원력 패턴
-- [x] 테스트 코드
-- [x] 문서화
+- [x] DynamoDB 통합 (reservations, orders, idempotency, outbox)
+- [x] gRPC 클라이언트 (inventory-api 연동)
+- [x] REST API 구현 (CRUD + 비즈니스 로직)
+- [x] 보안 및 인증 (JWT OIDC)
+- [x] 관측성 및 모니터링 (OpenTelemetry, Prometheus)
+- [x] 복원력 패턴 (Resilience4j)
+- [x] 테스트 코드 (단위/통합/성능)
+- [x] 문서화 (API 스펙, 아키텍처)
+- [x] 멱등성 처리 (DynamoDB 기반)
+- [x] 이벤트 기반 아키텍처 (Outbox 패턴)
+- [x] 구조화 로깅 (JSON + 트레이싱)
+- [x] 예외 처리 및 에러 응답 표준화
 - [ ] 성능 튜닝 (진행 중)
-- [ ] 캐시 레이어 추가
+- [ ] 캐시 레이어 추가 (Redis)
 - [ ] 분산 트레이싱 개선
 - [ ] GraphQL API 지원
+- [ ] 다국어 지원
 
 ---
 
