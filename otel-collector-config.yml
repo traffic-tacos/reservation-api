@@ -1,0 +1,51 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'reservation-api'
+          static_configs:
+            - targets: ['host.docker.internal:8001']
+          metrics_path: '/actuator/prometheus'
+          scrape_interval: 15s
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  resource:
+    attributes:
+      - key: service.name
+        value: reservation-api
+        action: upsert
+      - key: service.version
+        value: 1.0.0
+        action: upsert
+
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    const_labels:
+      service: reservation-api
+  logging:
+    loglevel: debug
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [logging]
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [batch, resource]
+      exporters: [prometheus, logging]
+    logs:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [logging]

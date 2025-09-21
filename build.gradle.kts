@@ -23,28 +23,69 @@ repositories {
 }
 
 extra["springGrpcVersion"] = "0.10.0"
+extra["awsSdkVersion"] = "2.28.29"
+extra["resilience4jVersion"] = "2.2.0"
 
 dependencies {
+	// Spring Boot Core
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
-	implementation("org.springframework.boot:spring-boot-starter-web")
+	implementation("org.springframework.boot:spring-boot-starter-webflux")
+	implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+
+	// Kotlin
 	implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
-	implementation("io.grpc:grpc-services")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
-	implementation("org.springframework.grpc:spring-grpc-server-web-spring-boot-starter")
+	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
+
+	// gRPC
+	implementation("io.grpc:grpc-services")
+	implementation("org.springframework.grpc:spring-grpc-client-spring-boot-starter")
+	implementation("io.grpc:grpc-kotlin-stub:1.4.0")
+
+	// AWS SDK v2
+	implementation("software.amazon.awssdk:dynamodb:${property("awsSdkVersion")}")
+	implementation("software.amazon.awssdk:dynamodb-enhanced:${property("awsSdkVersion")}")
+	implementation("software.amazon.awssdk:eventbridge:${property("awsSdkVersion")}")
+	implementation("software.amazon.awssdk:scheduler:${property("awsSdkVersion")}")
+	implementation("software.amazon.awssdk:secretsmanager:${property("awsSdkVersion")}")
+
+	// Resilience4j
+	implementation("io.github.resilience4j:resilience4j-spring-boot3:${property("resilience4jVersion")}")
+	implementation("io.github.resilience4j:resilience4j-reactor:${property("resilience4jVersion")}")
+
+	// OpenAPI/Swagger
+	implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:2.6.0")
+
+	// Caching
+	implementation("com.github.ben-manes.caffeine:caffeine")
+
+	// Observability
 	runtimeOnly("io.micrometer:micrometer-registry-otlp")
 	runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+	runtimeOnly("io.micrometer:micrometer-tracing-bridge-otel")
+
+	// Test Dependencies
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
 	testImplementation("org.springframework.grpc:spring-grpc-test")
 	testImplementation("org.springframework.security:spring-security-test")
+	testImplementation("io.projectreactor:reactor-test")
+	testImplementation("org.testcontainers:testcontainers")
+	testImplementation("org.testcontainers:junit-jupiter")
+	testImplementation("org.testcontainers:localstack")
+	testImplementation("com.amazonaws:DynamoDBLocal:2.5.2")
+	testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
+	testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 dependencyManagement {
 	imports {
 		mavenBom("org.springframework.grpc:spring-grpc-dependencies:${property("springGrpcVersion")}")
+		mavenBom("software.amazon.awssdk:bom:${property("awsSdkVersion")}")
+		mavenBom("org.testcontainers:testcontainers-bom:1.20.4")
 	}
 }
 
@@ -56,17 +97,23 @@ kotlin {
 
 protobuf {
 	protoc {
-		artifact = "com.google.protobuf:protoc"
+		artifact = "com.google.protobuf:protoc:3.25.3"
 	}
 	plugins {
 		id("grpc") {
-			artifact = "io.grpc:protoc-gen-grpc-java"
+			artifact = "io.grpc:protoc-gen-grpc-java:1.66.0"
+		}
+		id("grpckt") {
+			artifact = "io.grpc:protoc-gen-grpc-kotlin:1.4.1:jdk8@jar"
 		}
 	}
 	generateProtoTasks {
 		all().forEach {
 			it.plugins {
 				id("grpc") {
+					option("@generated=omit")
+				}
+				id("grpckt") {
 					option("@generated=omit")
 				}
 			}

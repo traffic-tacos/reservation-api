@@ -1,0 +1,459 @@
+openapi: 3.0.3
+info:
+  title: Traffic Tacos Reservation API
+  description: |
+    High-performance ticket reservation service designed to handle 30k RPS traffic.
+
+    ## Features
+    - 60-second reservation hold mechanism
+    - Idempotent operations with request deduplication
+    - gRPC integration with inventory service
+    - Event-driven architecture with outbox pattern
+    - JWT-based authentication
+
+    ## Usage
+    1. Authenticate using JWT Bearer token
+    2. Create reservation with `Idempotency-Key` header
+    3. Complete payment process
+    4. Confirm reservation to finalize seat allocation
+
+    ## Rate Limits
+    - 30k RPS system-wide capacity
+    - P95 latency target: < 120ms
+    - 60-second hold expiry
+  version: 1.0.0
+  contact:
+    name: Traffic Tacos Team
+    email: support@traffictacos.com
+    url: https://traffictacos.com
+  license:
+    name: MIT License
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8001
+    description: Local development server
+  - url: https://api.traffictacos.com
+    description: Production server
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Bearer token authentication
+
+  schemas:
+    CreateReservationRequest:
+      type: object
+      required:
+        - eventId
+        - quantity
+        - reservationToken
+      properties:
+        eventId:
+          type: string
+          description: Unique identifier for the event
+          example: "evt_2025_concert"
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Number of seats to reserve
+          example: 2
+        seatIds:
+          type: array
+          items:
+            type: string
+          description: Specific seat IDs (optional)
+          example: ["A-12", "A-13"]
+        reservationToken:
+          type: string
+          description: Token from queue service authorizing reservation
+          example: "res_token_abc123"
+
+    CreateReservationResponse:
+      type: object
+      properties:
+        reservationId:
+          type: string
+          description: Unique reservation identifier
+          example: "rsv_123e4567-e89b-12d3-a456-426614174000"
+        status:
+          $ref: "#/components/schemas/ReservationStatus"
+        holdExpiresAt:
+          type: string
+          format: date-time
+          description: UTC timestamp when hold expires
+          example: "2025-01-15T14:30:00Z"
+        message:
+          type: string
+          description: Status message
+          example: "Reservation created successfully"
+
+    ReservationDetailsResponse:
+      type: object
+      properties:
+        reservationId:
+          type: string
+          example: "rsv_123e4567-e89b-12d3-a456-426614174000"
+        eventId:
+          type: string
+          example: "evt_2025_concert"
+        quantity:
+          type: integer
+          example: 2
+        seatIds:
+          type: array
+          items:
+            type: string
+          example: ["A-12", "A-13"]
+        status:
+          $ref: "#/components/schemas/ReservationStatus"
+        holdExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2025-01-15T14:30:00Z"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-01-15T14:29:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-01-15T14:29:00Z"
+
+    ConfirmReservationRequest:
+      type: object
+      required:
+        - reservationId
+        - paymentIntentId
+      properties:
+        reservationId:
+          type: string
+          description: Reservation to confirm
+          example: "rsv_123e4567-e89b-12d3-a456-426614174000"
+        paymentIntentId:
+          type: string
+          description: Payment intent identifier from payment service
+          example: "pi_1234567890"
+
+    ConfirmReservationResponse:
+      type: object
+      properties:
+        orderId:
+          type: string
+          description: Created order identifier
+          example: "ord_123e4567-e89b-12d3-a456-426614174000"
+        reservationId:
+          type: string
+          example: "rsv_123e4567-e89b-12d3-a456-426614174000"
+        status:
+          $ref: "#/components/schemas/ReservationStatus"
+        message:
+          type: string
+          example: "Reservation confirmed successfully"
+
+    CancelReservationRequest:
+      type: object
+      required:
+        - reservationId
+      properties:
+        reservationId:
+          type: string
+          description: Reservation to cancel
+          example: "rsv_123e4567-e89b-12d3-a456-426614174000"
+
+    CancelReservationResponse:
+      type: object
+      properties:
+        reservationId:
+          type: string
+          example: "rsv_123e4567-e89b-12d3-a456-426614174000"
+        status:
+          $ref: "#/components/schemas/ReservationStatus"
+        message:
+          type: string
+          example: "Reservation cancelled successfully"
+
+    ReservationStatus:
+      type: string
+      enum:
+        - PENDING
+        - HOLD
+        - CONFIRMED
+        - CANCELLED
+        - EXPIRED
+      description: |
+        - PENDING: Initial state
+        - HOLD: Seats held for 60 seconds
+        - CONFIRMED: Payment completed, seats allocated
+        - CANCELLED: User cancelled or payment failed
+        - EXPIRED: Hold period expired
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+
+    ErrorDetail:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Error code for programmatic handling
+          example: "SEAT_UNAVAILABLE"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Requested seats are not available"
+        traceId:
+          type: string
+          description: Trace ID for debugging
+          example: "abc123def456"
+        details:
+          type: object
+          description: Additional error context
+          additionalProperties: true
+
+paths:
+  /v1/reservations:
+    post:
+      summary: Create reservation
+      description: |
+        Creates a new reservation with a 60-second hold period.
+
+        **Idempotency**: Use `Idempotency-Key` header to prevent duplicate reservations.
+
+        **Process**:
+        1. Validates reservation token from queue service
+        2. Checks seat availability via inventory service
+        3. Creates reservation with 60s expiry
+        4. Schedules automatic expiry via EventBridge
+      operationId: createReservation
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID to ensure request idempotency
+          example: "123e4567-e89b-12d3-a456-426614174000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReservationRequest"
+      responses:
+        "201":
+          description: Reservation created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateReservationResponse"
+        "400":
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Seats unavailable or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/reservations/{reservationId}:
+    get:
+      summary: Get reservation details
+      description: Retrieves details of a specific reservation
+      operationId: getReservation
+      parameters:
+        - name: reservationId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Reservation identifier
+          example: "rsv_123e4567-e89b-12d3-a456-426614174000"
+      responses:
+        "200":
+          description: Reservation details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDetailsResponse"
+        "404":
+          description: Reservation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/reservations/confirm:
+    post:
+      summary: Confirm reservation
+      description: |
+        Confirms a reservation after successful payment processing.
+
+        **Process**:
+        1. Validates reservation status and expiry
+        2. Calls inventory service to commit seat allocation
+        3. Creates order record
+        4. Updates reservation status to CONFIRMED
+        5. Publishes confirmation event
+      operationId: confirmReservation
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Optional UUID for idempotency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmReservationRequest"
+      responses:
+        "200":
+          description: Reservation confirmed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmReservationResponse"
+        "400":
+          description: Invalid request or reservation state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Reservation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "402":
+          description: Payment required or failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/reservations/cancel:
+    post:
+      summary: Cancel reservation
+      description: |
+        Cancels a reservation and releases held seats.
+
+        **Process**:
+        1. Validates reservation status
+        2. Calls inventory service to release seat hold
+        3. Updates reservation status to CANCELLED
+        4. Publishes cancellation event
+      operationId: cancelReservation
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Optional UUID for idempotency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelReservationRequest"
+      responses:
+        "200":
+          description: Reservation cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelReservationResponse"
+        "400":
+          description: Invalid request or reservation state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Reservation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /health:
+    get:
+      summary: Health check
+      description: Basic health status endpoint
+      operationId: health
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "UP"
+                  service:
+                    type: string
+                    example: "reservation-api"
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /info:
+    get:
+      summary: Service information
+      description: Returns service metadata and version information
+      operationId: info
+      security: []
+      responses:
+        "200":
+          description: Service information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: "reservation-api"
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  description:
+                    type: string
+                    example: "Ticket Reservation API Service"
+
+tags:
+  - name: Reservations
+    description: Core reservation management operations
+  - name: Health
+    description: Service health and monitoring endpoints

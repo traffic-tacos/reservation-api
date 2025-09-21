@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package inventory.v1;
+
+option java_package = "com.traffictacos.inventory.v1";
+option java_multiple_files = true;
+option java_outer_classname = "InventoryProto";
+
+// Inventory service for managing seat availability
+service Inventory {
+  // Check seat availability for an event
+  rpc CheckAvailability(CheckAvailabilityRequest) returns (CheckAvailabilityResponse);
+
+  // Commit a reservation (finalize seat allocation)
+  rpc CommitReservation(CommitReservationRequest) returns (CommitReservationResponse);
+
+  // Release a hold on seats
+  rpc ReleaseHold(ReleaseHoldRequest) returns (ReleaseHoldResponse);
+}
+
+// Check availability request
+message CheckAvailabilityRequest {
+  string event_id = 1;
+  int32 quantity = 2;
+  repeated string seat_ids = 3; // Optional: specific seats requested
+}
+
+// Check availability response
+message CheckAvailabilityResponse {
+  bool available = 1;
+  repeated string available_seat_ids = 2;
+  string message = 3;
+}
+
+// Commit reservation request
+message CommitReservationRequest {
+  string reservation_id = 1;
+  string event_id = 2;
+  repeated string seat_ids = 3;
+  int32 quantity = 4;
+  string payment_intent_id = 5;
+}
+
+// Commit reservation response
+message CommitReservationResponse {
+  bool success = 1;
+  string message = 2;
+  repeated string confirmed_seat_ids = 3;
+}
+
+// Release hold request
+message ReleaseHoldRequest {
+  string reservation_id = 1;
+  string event_id = 2;
+  repeated string seat_ids = 3;
+  int32 quantity = 4;
+}
+
+// Release hold response
+message ReleaseHoldResponse {
+  bool success = 1;
+  string message = 2;
+  repeated string released_seat_ids = 3;
+}
