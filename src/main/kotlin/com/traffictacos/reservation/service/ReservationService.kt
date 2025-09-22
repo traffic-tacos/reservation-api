@@ -5,8 +5,12 @@ import com.traffictacos.reservation.domain.ReservationStatus
 import com.traffictacos.reservation.domain.Order
 import com.traffictacos.reservation.domain.OrderStatus
 import com.traffictacos.reservation.dto.*
-import com.traffictacos.reservation.grpc.InventoryGrpcClient
+import com.traffictacos.reservation.grpc.InventoryGrpcService
 import com.traffictacos.reservation.repository.ReservationRepository
+import reservationv1.CheckAvailabilityRequest
+import reservationv1.HoldSeatsRequest
+import reservationv1.CommitReservationRequest
+import reservationv1.ReleaseHoldRequest
 import com.traffictacos.reservation.repository.OrderRepository
 import kotlinx.coroutines.reactive.awaitFirst
 import kotlinx.coroutines.reactive.awaitFirstOrNull
@@ -21,7 +25,7 @@ import java.util.*
 class ReservationService(
     private val reservationRepository: ReservationRepository,
     private val orderRepository: OrderRepository,
-    private val inventoryGrpcClient: InventoryGrpcClient,
+    private val inventoryGrpcService: InventoryGrpcService,
     private val reservationExpiryService: ReservationExpiryService,
     private val outboxEventPublisher: OutboxEventPublisher
 ) {
@@ -36,12 +40,14 @@ class ReservationService(
         logger.info("Creating reservation for user: {}, eventId: {}, quantity: {}", userId, request.eventId, request.quantity)
 
         // Check inventory availability
-        val availabilityResponse = inventoryGrpcClient.checkAvailability(
-            eventId = request.eventId,
-            quantity = request.quantity,
-            seatIds = request.seatIds,
-            userId = userId
-        )
+        val availabilityRequest = CheckAvailabilityRequest.newBuilder()
+            .setEventId(request.eventId)
+            .setQuantity(request.quantity)
+            .addAllSeatIds(request.seatIds)
+            .setUserId(userId)
+            .build()
+
+        val availabilityResponse = inventoryGrpcService.checkAvailability(availabilityRequest)
 
         if (!availabilityResponse.available) {
             throw ReservationException(
@@ -55,14 +61,16 @@ class ReservationService(
         val holdExpiresAt = Instant.now().plusSeconds(60)
 
         // Hold seats in inventory service
-        val holdResponse = inventoryGrpcClient.holdSeats(
-            eventId = request.eventId,
-            seatIds = availabilityResponse.availableSeatIdsList,
-            quantity = request.quantity,
-            reservationId = reservationId,
-            userId = userId,
-            holdDurationSeconds = 60
-        )
+        val holdRequest = HoldSeatsRequest.newBuilder()
+            .setEventId(request.eventId)
+            .addAllSeatIds(availabilityResponse.availableSeatIdsList)
+            .setQuantity(request.quantity)
+            .setReservationId(reservationId)
+            .setUserId(userId)
+            .setHoldDurationSeconds(60)
+            .build()
+
+        val holdResponse = inventoryGrpcService.holdSeats(holdRequest)
 
         if (!holdResponse.success) {
             throw ReservationException(
@@ -142,15 +150,17 @@ class ReservationService(
         }
 
         // Commit reservation in inventory service
-        val commitResponse = inventoryGrpcClient.commitReservation(
-            reservationId = request.reservationId,
-            eventId = reservation.eventId,
-            seatIds = reservation.seatIds,
-            quantity = reservation.quantity,
-            paymentIntentId = request.paymentIntentId,
-            holdToken = reservation.holdToken ?: "",
-            userId = userId
-        )
+        val commitRequest = CommitReservationRequest.newBuilder()
+            .setReservationId(request.reservationId)
+            .setEventId(reservation.eventId)
+            .addAllSeatIds(reservation.seatIds)
+            .setQuantity(reservation.quantity)
+            .setPaymentIntentId(request.paymentIntentId)
+            .setHoldToken(reservation.holdToken ?: "")
+            .setUserId(userId)
+            .build()
+
+        val commitResponse = inventoryGrpcService.commitReservation(commitRequest)
 
         if (!commitResponse.success) {
             throw ReservationException(ErrorCode.INVENTORY_SERVICE_ERROR, "Failed to commit reservation: ${commitResponse.message}")
@@ -205,14 +215,16 @@ class ReservationService(
         }
 
         // Release hold in inventory service
-        val releaseResponse = inventoryGrpcClient.releaseHold(
-            reservationId = request.reservationId,
-            eventId = reservation.eventId,
-            seatIds = reservation.seatIds,
-            quantity = reservation.quantity,
-            holdToken = reservation.holdToken ?: "",
-            userId = userId
-        )
+        val releaseRequest = ReleaseHoldRequest.newBuilder()
+            .setReservationId(request.reservationId)
+            .setEventId(reservation.eventId)
+            .addAllSeatIds(reservation.seatIds)
+            .setQuantity(reservation.quantity)
+            .setHoldToken(reservation.holdToken ?: "")
+            .setUserId(userId)
+            .build()
+
+        val releaseResponse = inventoryGrpcService.releaseHold(releaseRequest)
 
         if (!releaseResponse.success) {
             logger.warn("Failed to release hold in inventory service: {}", releaseResponse.message)

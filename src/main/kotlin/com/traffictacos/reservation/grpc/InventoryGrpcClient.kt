@@ -1,14 +1,14 @@
 package com.traffictacos.reservation.grpc
 
-import com.traffictacos.reservation.v1.InventoryServiceGrpcKt
-import com.traffictacos.reservation.v1.CheckAvailabilityRequest
-import com.traffictacos.reservation.v1.CheckAvailabilityResponse
-import com.traffictacos.reservation.v1.HoldSeatsRequest
-import com.traffictacos.reservation.v1.HoldSeatsResponse
-import com.traffictacos.reservation.v1.CommitReservationRequest
-import com.traffictacos.reservation.v1.CommitReservationResponse
-import com.traffictacos.reservation.v1.ReleaseHoldRequest
-import com.traffictacos.reservation.v1.ReleaseHoldResponse
+import reservationv1.InventoryServiceGrpcKt
+import reservationv1.CheckAvailabilityRequest
+import reservationv1.CheckAvailabilityResponse
+import reservationv1.HoldSeatsRequest
+import reservationv1.HoldSeatsResponse
+import reservationv1.CommitReservationRequest
+import reservationv1.CommitReservationResponse
+import reservationv1.ReleaseHoldRequest
+import reservationv1.ReleaseHoldResponse
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker
 import io.github.resilience4j.timelimiter.annotation.TimeLimiter
 import kotlinx.coroutines.reactive.awaitFirst

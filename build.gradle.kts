@@ -20,6 +20,10 @@ java {
 
 repositories {
 	mavenCentral()
+	// GitHub Packages에서 proto-contracts 가져오기 (임시로 로컬 패키지 대신 구현)
+	maven {
+		url = uri("https://github.com/traffic-tacos/proto-contracts/packages/maven")
+	}
 }
 
 extra["springGrpcVersion"] = "0.10.0"
@@ -27,6 +31,8 @@ extra["awsSdkVersion"] = "2.28.29"
 extra["resilience4jVersion"] = "2.2.0"
 
 dependencies {
+	// 임시로 proto-contracts 대신 로컬 proto 파일 사용 (추후 실제 패키지로 교체)
+
 	// Spring Boot Core
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-security")
@@ -39,10 +45,16 @@ dependencies {
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
 
-	// gRPC
-	implementation("io.grpc:grpc-services")
-	implementation("org.springframework.grpc:spring-grpc-client-spring-boot-starter")
-	implementation("io.grpc:grpc-kotlin-stub:1.4.0")
+	// gRPC (devh 사용, Spring Boot 기본 gRPC 제거하여 충돌 방지)
+	implementation("io.grpc:grpc-services:1.66.0")
+	implementation("net.devh:grpc-server-spring-boot-starter:2.15.0.RELEASE")
+	implementation("net.devh:grpc-client-spring-boot-starter:2.15.0.RELEASE")
+	implementation("io.grpc:grpc-kotlin-stub:1.4.1")
+	implementation("io.grpc:grpc-protobuf:1.66.0")
+	implementation("io.grpc:grpc-netty-shaded:1.66.0")
+	implementation("io.grpc:grpc-census:1.66.0")
+	implementation("io.opencensus:opencensus-api:0.31.1")
+	implementation("io.opencensus:opencensus-impl:0.31.1")
 
 	// AWS SDK v2
 	implementation("software.amazon.awssdk:dynamodb:${property("awsSdkVersion")}")

@@ -37,8 +37,8 @@ class OpenApiConfig {
             .servers(
                 listOf(
                     Server()
-                        .url("http://localhost:8001")
-                        .description("Local development server"),
+                        .url("http://localhost:8010")
+                        .description("Local development server (REST API)"),
                     Server()
                         .url("https://api.traffictacos.com")
                         .description("Production server")

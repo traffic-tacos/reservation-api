@@ -11,6 +11,7 @@
 - ✅ Reservation confirmation and cancellation
 - ✅ Event-driven architecture with outbox pattern
 - ✅ gRPC communication with inventory service
+- ✅ **Traffic Tacos proto-contracts integration**
 - ✅ JWT authentication and security
 - ✅ Comprehensive error handling and validation
 - ✅ Health checks and monitoring endpoints
@@ -26,7 +27,8 @@
 **API & Documentation**: ✅ Complete
 - ✅ RESTful API with comprehensive validation
 - ✅ OpenAPI 3.0 specification and Swagger UI
-- ✅ Protocol Buffer definitions for gRPC
+- ✅ **Centralized proto-contracts for gRPC services**
+- ✅ Dual REST + gRPC API support
 - ✅ Production-ready configuration management
 
 ## 🚀 Features
@@ -34,7 +36,8 @@
 - **High Performance**: 30k RPS capacity, P95 < 120ms latency target
 - **60-Second Hold**: Automatic reservation expiry via EventBridge Scheduler
 - **Idempotent Operations**: Request deduplication with 5-minute TTL
-- **gRPC Integration**: High-performance communication with inventory service
+- **gRPC Integration**: High-performance communication with centralized proto-contracts
+- **Dual API Support**: Both REST and gRPC endpoints available
 - **Event-Driven Architecture**: Outbox pattern with EventBridge/SQS
 - **JWT Authentication**: OAuth2 resource server with Spring Security
 - **Observability**: OpenTelemetry, Prometheus metrics, distributed tracing
@@ -42,26 +45,40 @@
 
 ## 🏗️ Architecture
 
+### Traffic Tacos MSA Port Allocation
+
+| Service | REST API | gRPC Server | Status |
+|---------|----------|-------------|--------|
+| **gateway-api** | 8000 | 8001 | Planned |
+| **reservation-api** | **8010** | **8011** | ✅ **Running** |
+| **inventory-api** | 8020 | **8021** | Connected |
+| **payment-sim-api** | 8030 | 8031 | Planned |
+| **reservation-worker** | 8040 | 8041 | Planned |
+
+### Service Communication Flow
+
 ```
-┌─────────────────┐    gRPC    ┌─────────────────┐
-│  Gateway API    │ ---------> │ Reservation API │
-│  (HTTP/REST)    │            │  (This Service) │
-└─────────────────┘            └─────────────────┘
-                                       │
-                                       │ gRPC
-                                       ▼
-                               ┌─────────────────┐
-                               │  Inventory API  │
-                               │   (Go/gRPC)     │
-                               └─────────────────┘
-                                       │
-                                       │ Events
-                                       ▼
-                               ┌─────────────────┐
-                               │ EventBridge/SQS │
-                               │   Background    │
-                               │    Workers      │
-                               └─────────────────┘
+┌─────────────────┐    gRPC     ┌─────────────────┐
+│   Gateway API   │ :8001 ----> │ Reservation API │
+│ REST: 8000      │             │ REST: 8010      │
+│ gRPC: 8001      │             │ gRPC: 8011      │
+└─────────────────┘             └─────────────────┘
+                                        │
+                            gRPC :8021  │
+                                        ▼
+                                ┌─────────────────┐
+                                │  Inventory API  │
+                                │ REST: 8020      │
+                                │ gRPC: 8021      │
+                                └─────────────────┘
+                                        │
+                                        │ Events
+                                        ▼
+                                ┌─────────────────┐
+                                │ EventBridge/SQS │
+                                │   Background    │
+                                │    Workers      │
+                                └─────────────────┘
 ```
 
 ## 🛠️ Technology Stack
@@ -69,7 +86,7 @@
 - **Framework**: Spring Boot 3.5.5 WebFlux (Reactive)
 - **Language**: Kotlin 1.9.25
 - **Database**: AWS DynamoDB (with Enhanced Client)
-- **Communication**: gRPC, REST API
+- **Communication**: gRPC (proto-contracts), REST API
 - **Authentication**: JWT OAuth2 Resource Server
 - **Events**: AWS EventBridge, EventBridge Scheduler
 - **Observability**: OpenTelemetry, Prometheus, Micrometer
@@ -96,7 +113,7 @@ This will:
 - Start DynamoDB Local, LocalStack, Prometheus, Grafana
 - Create DynamoDB tables
 - Build the application
-- Run the service on port 8001
+- Run the service on port 8010 (REST), 8011 (gRPC)
 
 ### 2. Individual Commands
 
@@ -148,8 +165,13 @@ This will:
 
 ### API Documentation
 
-- **Swagger UI**: http://localhost:8001/swagger-ui.html
-- **OpenAPI Spec**: http://localhost:8001/v3/api-docs
+**REST API:**
+- **Swagger UI**: http://localhost:8010/swagger-ui.html
+- **OpenAPI Spec**: http://localhost:8010/v3/api-docs
+
+**gRPC API:**
+- **gRPC Server**: localhost:8011 (reflection enabled)
+- **Proto Contracts**: Traffic Tacos centralized definitions
 
 ## 🔧 Configuration
 
@@ -163,10 +185,11 @@ AWS_DYNAMODB_ENDPOINT=http://localhost:8000  # For local development
 
 # Service Configuration
 SPRING_PROFILES_ACTIVE=local
-SERVER_PORT=8001
+SERVER_PORT=8010
+GRPC_SERVER_PORT=8011
 
-# gRPC Client
-GRPC_CLIENT_INVENTORY_SERVICE_ADDRESS=static://localhost:8002
+# gRPC Client (Inventory Service)
+GRPC_CLIENT_INVENTORY_SERVICE_ADDRESS=static://localhost:8021
 
 # Security
 SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=https://your-auth-server.com
@@ -269,7 +292,7 @@ src/main/kotlin/com/traffictacos/reservation/
 ├── security/        # Security configuration
 └── service/         # Business logic
 
-src/main/proto/      # Protocol Buffer definitions
+src/main/proto/      # Traffic Tacos proto-contracts (common/v1, reservation/v1)
 src/main/resources/
 ├── application.properties
 └── openapi/         # OpenAPI specification
@@ -303,7 +326,7 @@ docker build -t reservation-api:latest .
 ### Run Container
 
 ```bash
-docker run -p 8001:8001 \
+docker run -p 8010:8010 -p 8011:8011 \
   -e SPRING_PROFILES_ACTIVE=local \
   -e AWS_REGION=ap-northeast-2 \
   reservation-api:latest

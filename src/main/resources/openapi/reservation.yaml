@@ -31,8 +31,8 @@ info:
     url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: http://localhost:8001
-    description: Local development server
+  - url: http://localhost:8010
+    description: Local development server (REST API)
   - url: https://api.traffictacos.com
     description: Production server
 

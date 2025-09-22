@@ -1,6 +1,6 @@
 package com.traffictacos.reservation.config
 
-import com.traffictacos.reservation.v1.InventoryServiceGrpcKt
+import reservationv1.InventoryServiceGrpcKt
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import org.springframework.beans.factory.annotation.Value
@@ -11,7 +11,7 @@ import javax.annotation.PreDestroy
 @Configuration
 class GrpcConfig {
 
-    @Value("\${grpc.client.inventory-service.address:localhost:8002}")
+    @Value("\${grpc.client.inventory-service.address:localhost:8021}")
     private lateinit var inventoryServiceAddress: String
 
     private var managedChannel: ManagedChannel? = null
@@ -21,7 +21,7 @@ class GrpcConfig {
         val address = inventoryServiceAddress.removePrefix("static://")
         val parts = address.split(":")
         val host = parts[0]
-        val port = parts.getOrNull(1)?.toIntOrNull() ?: 8002
+        val port = parts.getOrNull(1)?.toIntOrNull() ?: 8021
 
         managedChannel = ManagedChannelBuilder.forAddress(host, port)
             .usePlaintext()

@@ -20,9 +20,9 @@ RUN chown -R appuser:appgroup /app
 
 USER appuser
 
-EXPOSE 8001
+EXPOSE 8010 8011
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8001/actuator/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8010/actuator/health || exit 1
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

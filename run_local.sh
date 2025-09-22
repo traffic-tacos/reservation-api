@@ -167,9 +167,14 @@ build_app() {
 run_app() {
     print_status "Starting reservation-api..."
 
-    # Check if port 8001 is available
-    if port_in_use 8001; then
-        print_error "Port 8001 is already in use. Please stop the service using this port."
+    # Check if ports 8010 and 8011 are available
+    if port_in_use 8010; then
+        print_error "Port 8010 (REST API) is already in use. Please stop the service using this port."
+        exit 1
+    fi
+
+    if port_in_use 8011; then
+        print_error "Port 8011 (gRPC) is already in use. Please stop the service using this port."
         exit 1
     fi
 
@@ -179,11 +184,11 @@ run_app() {
     export AWS_PROFILE=tacos
     export AWS_DYNAMODB_ENDPOINT=http://localhost:8000
     export AWS_SCHEDULER_ENDPOINT=http://localhost:4566
-    export GRPC_CLIENT_INVENTORY_SERVICE_ADDRESS=static://localhost:8002
+    export GRPC_CLIENT_INVENTORY_SERVICE_ADDRESS=static://localhost:8021
     export SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=https://dev-auth.traffictacos.com
 
     print_status "Environment configured for local development"
-    print_status "Starting application on port 8001..."
+    print_status "Starting application on ports 8010 (REST) and 8011 (gRPC)..."
 
     # Run the application
     ./gradlew bootRun
@@ -196,9 +201,13 @@ stop_services() {
     # Stop Docker services
     docker-compose -f docker-compose.local.yml down
 
-    # Kill any Java processes on port 8001
-    if port_in_use 8001; then
-        lsof -ti:8001 | xargs kill -9 2>/dev/null || true
+    # Kill any Java processes on ports 8010 and 8011
+    if port_in_use 8010; then
+        lsof -ti:8010 | xargs kill -9 2>/dev/null || true
+    fi
+
+    if port_in_use 8011; then
+        lsof -ti:8011 | xargs kill -9 2>/dev/null || true
     fi
 
     print_success "All services stopped!"
