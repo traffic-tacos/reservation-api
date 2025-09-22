@@ -3,7 +3,7 @@ description:
 globs:
 alwaysApply: true
 ---
-당신은 Kotlin(Spring Boot 3.5.5, Java 17) 기반의 고성능 예약 서비스(reservation-api)를 구현하는 시니어 백엔드 엔지니어입니다.  
+당신은 Kotlin(Spring Boot 3.5.5, Java 17) 기반의 고성능 예약 서비스(reservation-api)를 구현하는 시니어 백엔드 엔지니어입니다.
 인프라/배포는 이미 준비되어 있으므로, 애플리케이션 코드와 계약/도메인/관측/테스트에만 집중하세요.
 
 ## 1) 프로젝트 컨텍스트
@@ -11,9 +11,10 @@ alwaysApply: true
 - 그룹: com.traffictacos
 - 아티팩트: reservation-api
 - 패키지: com.traffictacos.reservation
-- 설명: "Ticket Reservation API Service (Spring Boot, Cloud-Native)"
-- Dependencies (이미 선택됨): Spring WebFlux, Spring Security, Spring Boot Actuator, Validation, Spring gRPC, Prometheus, OTLP for metrics
-- 추가 수동 의존성: AWS SDK v2 (DynamoDB, EventBridge), resilience4j, jackson-module-kotlin
+- 설명: "Traffic Tacos Reservation API Service - 30k RPS 고성능 예약 시스템"
+- Dependencies (이미 선택됨): Spring WebFlux, Spring Security, Spring Boot Actuator, Validation, devh gRPC Spring Boot Starter, Prometheus, OTLP for metrics
+- 추가 수동 의존성: AWS SDK v2 (DynamoDB Enhanced Client, EventBridge, EventBridge Scheduler), resilience4j, jackson-module-kotlin, protobuf-kotlin
+- **Traffic Tacos MSA 포트 할당**: REST API 8010, gRPC Server 8011
 
 ## 2) 도메인 모델 (DynamoDB)
 - reservations(pk=reservation_id, attrs: event_id, user_id, qty, seat_ids[], status, hold_expires_at, idempotency_key, created_at, updated_at)
@@ -44,11 +45,17 @@ alwaysApply: true
 에러 포맷 (공통):  
 { "error": { "code": "STRING_CODE", "message": "..." } }
 
-## 4) gRPC 연동 (inventory-api)
-- 메서드:
+## 4) gRPC 연동 및 Proto-Contracts
+- **Traffic Tacos Proto-Contracts**: 중앙화된 계약 정의 사용
+  - common/v1/common.proto: 공통 타입 (ErrorCode, Money, Seat)
+  - reservation/v1/inventory.proto: InventoryService 정의
+  - reservation/v1/reservation.proto: ReservationService 정의
+- **Inventory Service 연동** (포트 8021):
   - CheckAvailability(event_id, seat_ids|qty)
+  - HoldSeats(reservation_id, event_id, seat_ids|qty, hold_duration)
   - CommitReservation(reservation_id, event_id, seat_ids|qty, payment_intent_id)
   - ReleaseHold(reservation_id, event_id, seat_ids|qty)
+- **gRPC 서버**: ReservationService 구현 (포트 8011)
 - 타임아웃: 250ms, Commit은 재시도 금지
 
 ## 5) 멱등성/만료/이벤트
@@ -67,15 +74,19 @@ alwaysApply: true
 - JSON 구조 로그: ts, level, route, status, latency, reservation_id, trace_id
 
 ## 8) 성능/복원력
-- 목표: P95 < 120ms (확정 제외)
+- 목표: 30k RPS 처리 능력, P95 < 120ms (확정 제외)
 - WebFlux Netty, Jackson Afterburner, gRPC 채널 재사용
 - resilience4j: REST=600ms timeout, gRPC=250ms timeout, retry(멱등만), circuit breaker
+- **Dual API**: REST (8010) + gRPC (8011) 동시 제공
 
 ## 9) 산출물
 - 코드 구조:
   - controller/, dto/, service/, repository/, grpc/, config/, security/, observability/, workflow/
+- **Proto-Contracts**:
+  - src/main/proto/common/v1/common.proto
+  - src/main/proto/reservation/v1/inventory.proto
+  - src/main/proto/reservation/v1/reservation.proto
 - OpenAPI spec: openapi/reservation.yaml
-- proto: proto/inventory.proto (클라 코드 생성 포함)
 - tests: unit + integration(Testcontainers DynamoDB Local, gRPC stub)
 - scripts: run_local.sh, generate_proto.sh
-- README: 아키텍처, 엔드포인트, 설정키, 실행방법
+- README: Traffic Tacos MSA 아키텍처, 듀얼 API 엔드포인트, 포트 할당, 설정키, 실행방법
