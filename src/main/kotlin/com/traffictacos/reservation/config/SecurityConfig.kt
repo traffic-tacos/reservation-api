@@ -1,7 +1,9 @@
 package com.traffictacos.reservation.config
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpMethod
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity
 import org.springframework.security.config.web.server.ServerHttpSecurity
@@ -13,14 +15,26 @@ import org.springframework.security.web.server.util.matcher.PathPatternParserSer
 class SecurityConfig {
 
     @Bean
-    fun securityWebFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
+    @Profile("local")
+    fun localSecurityWebFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
+        return http
+            .csrf { it.disable() }
+            .authorizeExchange { exchanges ->
+                exchanges.anyExchange().permitAll()
+            }
+            .build()
+    }
+
+    @Bean
+    @Profile("!local")
+    fun prodSecurityWebFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
         return http
             .csrf { it.disable() }
             .authorizeExchange { exchanges ->
                 exchanges
                     // Public endpoints
                     .pathMatchers("/actuator/**").permitAll()
-                    .pathMatchers("/v3/api-docs/**", "/swagger-ui/**", "/webjars/**").permitAll()
+                    .pathMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/webjars/**").permitAll()
                     .pathMatchers("/health", "/info", "/metrics").permitAll()
 
                     // API endpoints require authentication
@@ -38,11 +52,11 @@ class SecurityConfig {
     }
 
     @Bean
+    @Profile("!local")
     fun jwtDecoder(): org.springframework.security.oauth2.jwt.ReactiveJwtDecoder {
-        // For development/testing, you might want to use a mock decoder
-        // In production, this should point to your actual JWT issuer
+        // For production, use the configured issuer URI
         return org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder
-            .withJwkSetUri("https://your-auth-server.com/.well-known/jwks.json")
+            .withJwkSetUri("http://localhost:8080/auth/realms/test/protocol/openid-connect/certs")
             .build()
     }
 }

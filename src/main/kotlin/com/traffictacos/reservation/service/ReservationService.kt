@@ -39,7 +39,8 @@ class ReservationService(
         val availabilityResponse = inventoryGrpcClient.checkAvailability(
             eventId = request.eventId,
             quantity = request.quantity,
-            seatIds = request.seatIds
+            seatIds = request.seatIds,
+            userId = userId
         )
 
         if (!availabilityResponse.available) {
@@ -53,14 +54,32 @@ class ReservationService(
         val reservationId = UUID.randomUUID().toString()
         val holdExpiresAt = Instant.now().plusSeconds(60)
 
+        // Hold seats in inventory service
+        val holdResponse = inventoryGrpcClient.holdSeats(
+            eventId = request.eventId,
+            seatIds = availabilityResponse.availableSeatIdsList,
+            quantity = request.quantity,
+            reservationId = reservationId,
+            userId = userId,
+            holdDurationSeconds = 60
+        )
+
+        if (!holdResponse.success) {
+            throw ReservationException(
+                ErrorCode.INVENTORY_SERVICE_ERROR,
+                "Failed to hold seats: ${holdResponse.message}"
+            )
+        }
+
         val reservation = Reservation(
             reservationId = reservationId,
             eventId = request.eventId,
             userId = userId,
             quantity = request.quantity,
-            seatIds = availabilityResponse.availableSeatIdsList,
+            seatIds = holdResponse.heldSeatIdsList,
             status = ReservationStatus.HOLD,
             holdExpiresAt = holdExpiresAt,
+            holdToken = holdResponse.holdToken,
             idempotencyKey = idempotencyKey
         )
 
@@ -128,7 +147,9 @@ class ReservationService(
             eventId = reservation.eventId,
             seatIds = reservation.seatIds,
             quantity = reservation.quantity,
-            paymentIntentId = request.paymentIntentId
+            paymentIntentId = request.paymentIntentId,
+            holdToken = reservation.holdToken ?: "",
+            userId = userId
         )
 
         if (!commitResponse.success) {
@@ -188,7 +209,9 @@ class ReservationService(
             reservationId = request.reservationId,
             eventId = reservation.eventId,
             seatIds = reservation.seatIds,
-            quantity = reservation.quantity
+            quantity = reservation.quantity,
+            holdToken = reservation.holdToken ?: "",
+            userId = userId
         )
 
         if (!releaseResponse.success) {

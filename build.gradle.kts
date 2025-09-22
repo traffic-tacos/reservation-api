@@ -56,7 +56,7 @@ dependencies {
 	implementation("io.github.resilience4j:resilience4j-reactor:${property("resilience4jVersion")}")
 
 	// OpenAPI/Swagger
-	implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:2.6.0")
+	implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:2.8.0")
 
 	// Caching
 	implementation("com.github.ben-manes.caffeine:caffeine")

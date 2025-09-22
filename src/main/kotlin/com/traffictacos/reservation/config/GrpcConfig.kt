@@ -1,6 +1,6 @@
 package com.traffictacos.reservation.config
 
-import com.traffictacos.inventory.v1.InventoryGrpcKt
+import com.traffictacos.reservation.v1.InventoryServiceGrpcKt
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import org.springframework.beans.factory.annotation.Value
@@ -35,8 +35,8 @@ class GrpcConfig {
     }
 
     @Bean
-    fun inventoryStub(channel: ManagedChannel): InventoryGrpcKt.InventoryCoroutineStub {
-        return InventoryGrpcKt.InventoryCoroutineStub(channel)
+    fun inventoryStub(channel: ManagedChannel): InventoryServiceGrpcKt.InventoryServiceCoroutineStub {
+        return InventoryServiceGrpcKt.InventoryServiceCoroutineStub(channel)
     }
 
     @PreDestroy

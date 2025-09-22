@@ -14,6 +14,7 @@ data class Reservation(
     var seatIds: List<String> = emptyList(),
     var status: ReservationStatus = ReservationStatus.PENDING,
     var holdExpiresAt: Instant? = null,
+    var holdToken: String? = null,
     var idempotencyKey: String = "",
     var createdAt: Instant = Instant.now(),
     var updatedAt: Instant = Instant.now()

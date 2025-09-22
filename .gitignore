@@ -38,6 +38,7 @@ out/
 
 ### Local Development ###
 application-local.yml
+application-local.properties
 application-dev.yml
 .env
 .env.local

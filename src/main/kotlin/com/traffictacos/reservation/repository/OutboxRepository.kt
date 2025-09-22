@@ -31,18 +31,14 @@ class OutboxRepository(
 
     fun findPendingEvents(): Flux<OutboxEvent> = Flux.create { sink ->
         try {
-            val scan = ScanEnhancedRequest.builder()
-                .filterExpression {
-                    it.equal {
-                        it.key("status")
-                        it.`val`(OutboxStatus.PENDING.name)
-                    }
-                }
-                .build()
+            // Simplified scan - get all events and filter in code for now
+            val scan = ScanEnhancedRequest.builder().build()
 
-            outboxTable.scan(scan).items().forEach { event ->
-                sink.next(event)
-            }
+            outboxTable.scan(scan).items()
+                .filter { it.status == OutboxStatus.PENDING }
+                .forEach { event ->
+                    sink.next(event)
+                }
             sink.complete()
         } catch (e: Exception) {
             sink.error(e)

@@ -1,12 +1,14 @@
 package com.traffictacos.reservation.grpc
 
-import com.traffictacos.inventory.v1.InventoryGrpcKt
-import com.traffictacos.inventory.v1.CheckAvailabilityRequest
-import com.traffictacos.inventory.v1.CheckAvailabilityResponse
-import com.traffictacos.inventory.v1.CommitReservationRequest
-import com.traffictacos.inventory.v1.CommitReservationResponse
-import com.traffictacos.inventory.v1.ReleaseHoldRequest
-import com.traffictacos.inventory.v1.ReleaseHoldResponse
+import com.traffictacos.reservation.v1.InventoryServiceGrpcKt
+import com.traffictacos.reservation.v1.CheckAvailabilityRequest
+import com.traffictacos.reservation.v1.CheckAvailabilityResponse
+import com.traffictacos.reservation.v1.HoldSeatsRequest
+import com.traffictacos.reservation.v1.HoldSeatsResponse
+import com.traffictacos.reservation.v1.CommitReservationRequest
+import com.traffictacos.reservation.v1.CommitReservationResponse
+import com.traffictacos.reservation.v1.ReleaseHoldRequest
+import com.traffictacos.reservation.v1.ReleaseHoldResponse
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker
 import io.github.resilience4j.timelimiter.annotation.TimeLimiter
 import kotlinx.coroutines.reactive.awaitFirst
@@ -17,7 +19,7 @@ import java.time.Duration
 
 @Component
 class InventoryGrpcClient(
-    private val inventoryStub: InventoryGrpcKt.InventoryCoroutineStub
+    private val inventoryStub: InventoryServiceGrpcKt.InventoryServiceCoroutineStub
 ) {
 
     private val logger = LoggerFactory.getLogger(InventoryGrpcClient::class.java)
@@ -27,14 +29,16 @@ class InventoryGrpcClient(
     suspend fun checkAvailability(
         eventId: String,
         quantity: Int,
-        seatIds: List<String> = emptyList()
+        seatIds: List<String> = emptyList(),
+        userId: String
     ): CheckAvailabilityResponse {
-        logger.debug("Checking availability for eventId: {}, quantity: {}, seatIds: {}", eventId, quantity, seatIds)
+        logger.debug("Checking availability for eventId: {}, quantity: {}, seatIds: {}, userId: {}", eventId, quantity, seatIds, userId)
 
         val request = CheckAvailabilityRequest.newBuilder()
             .setEventId(eventId)
             .setQuantity(quantity)
             .addAllSeatIds(seatIds)
+            .setUserId(userId)
             .build()
 
         return try {
@@ -47,6 +51,37 @@ class InventoryGrpcClient(
         }
     }
 
+    @CircuitBreaker(name = "inventory-grpc", fallbackMethod = "holdSeatsFallback")
+    @TimeLimiter(name = "inventory-grpc")
+    suspend fun holdSeats(
+        eventId: String,
+        seatIds: List<String>,
+        quantity: Int,
+        reservationId: String,
+        userId: String,
+        holdDurationSeconds: Int = 60
+    ): HoldSeatsResponse {
+        logger.debug("Holding seats for eventId: {}, seatIds: {}, reservationId: {}, userId: {}", eventId, seatIds, reservationId, userId)
+
+        val request = HoldSeatsRequest.newBuilder()
+            .setEventId(eventId)
+            .addAllSeatIds(seatIds)
+            .setQuantity(quantity)
+            .setReservationId(reservationId)
+            .setUserId(userId)
+            .setHoldDurationSeconds(holdDurationSeconds)
+            .build()
+
+        return try {
+            val response = inventoryStub.holdSeats(request)
+            logger.debug("Hold seats response: {}", response)
+            response
+        } catch (e: Exception) {
+            logger.error("Error holding seats for eventId: {}", eventId, e)
+            throw e
+        }
+    }
+
     @CircuitBreaker(name = "inventory-grpc", fallbackMethod = "commitReservationFallback")
     @TimeLimiter(name = "inventory-grpc")
     suspend fun commitReservation(
@@ -54,9 +89,11 @@ class InventoryGrpcClient(
         eventId: String,
         seatIds: List<String>,
         quantity: Int,
-        paymentIntentId: String
+        paymentIntentId: String,
+        holdToken: String,
+        userId: String
     ): CommitReservationResponse {
-        logger.debug("Committing reservation: {}, eventId: {}, seatIds: {}", reservationId, eventId, seatIds)
+        logger.debug("Committing reservation: {}, eventId: {}, seatIds: {}, userId: {}", reservationId, eventId, seatIds, userId)
 
         val request = CommitReservationRequest.newBuilder()
             .setReservationId(reservationId)
@@ -64,6 +101,8 @@ class InventoryGrpcClient(
             .addAllSeatIds(seatIds)
             .setQuantity(quantity)
             .setPaymentIntentId(paymentIntentId)
+            .setHoldToken(holdToken)
+            .setUserId(userId)
             .build()
 
         return try {
@@ -82,15 +121,19 @@ class InventoryGrpcClient(
         reservationId: String,
         eventId: String,
         seatIds: List<String>,
-        quantity: Int
+        quantity: Int,
+        holdToken: String,
+        userId: String
     ): ReleaseHoldResponse {
-        logger.debug("Releasing hold for reservation: {}, eventId: {}, seatIds: {}", reservationId, eventId, seatIds)
+        logger.debug("Releasing hold for reservation: {}, eventId: {}, seatIds: {}, userId: {}", reservationId, eventId, seatIds, userId)
 
         val request = ReleaseHoldRequest.newBuilder()
             .setReservationId(reservationId)
             .setEventId(eventId)
             .addAllSeatIds(seatIds)
             .setQuantity(quantity)
+            .setHoldToken(holdToken)
+            .setUserId(userId)
             .build()
 
         return try {
@@ -108,11 +151,28 @@ class InventoryGrpcClient(
         eventId: String,
         quantity: Int,
         seatIds: List<String>,
+        userId: String,
         ex: Exception
     ): CheckAvailabilityResponse {
         logger.warn("Fallback for checkAvailability: {}", ex.message)
         return CheckAvailabilityResponse.newBuilder()
             .setAvailable(false)
+            .setMessage("Service temporarily unavailable")
+            .build()
+    }
+
+    suspend fun holdSeatsFallback(
+        eventId: String,
+        seatIds: List<String>,
+        quantity: Int,
+        reservationId: String,
+        userId: String,
+        holdDurationSeconds: Int,
+        ex: Exception
+    ): HoldSeatsResponse {
+        logger.warn("Fallback for holdSeats: {}", ex.message)
+        return HoldSeatsResponse.newBuilder()
+            .setSuccess(false)
             .setMessage("Service temporarily unavailable")
             .build()
     }
@@ -123,6 +183,8 @@ class InventoryGrpcClient(
         seatIds: List<String>,
         quantity: Int,
         paymentIntentId: String,
+        holdToken: String,
+        userId: String,
         ex: Exception
     ): CommitReservationResponse {
         logger.warn("Fallback for commitReservation: {}", ex.message)
@@ -137,6 +199,8 @@ class InventoryGrpcClient(
         eventId: String,
         seatIds: List<String>,
         quantity: Int,
+        holdToken: String,
+        userId: String,
         ex: Exception
     ): ReleaseHoldResponse {
         logger.warn("Fallback for releaseHold: {}", ex.message)

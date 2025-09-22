@@ -4,8 +4,8 @@ import com.traffictacos.reservation.dto.ErrorResponse
 import com.traffictacos.reservation.dto.ErrorDetail
 import com.traffictacos.reservation.dto.ErrorCode
 import com.traffictacos.reservation.service.ReservationException
-import io.micrometer.tracing.TraceContext
-import io.micrometer.tracing.Tracer
+// import io.micrometer.tracing.TraceContext
+// import io.micrometer.tracing.Tracer
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -18,15 +18,13 @@ import org.springframework.web.bind.support.WebExchangeBindException
 import org.springframework.web.server.ServerWebInputException
 
 @RestControllerAdvice
-class GlobalExceptionHandler(
-    private val tracer: Tracer
-) {
+class GlobalExceptionHandler {
 
     private val logger = LoggerFactory.getLogger(GlobalExceptionHandler::class.java)
 
     @ExceptionHandler(ReservationException::class)
     fun handleReservationException(ex: ReservationException): ResponseEntity<ErrorResponse> {
-        val traceId = getTraceId()
+        val traceId = "local-trace-${System.currentTimeMillis()}"
         logger.warn("Reservation exception: {} - {}", ex.errorCode, ex.message, ex)
 
         val status = when (ex.errorCode) {
@@ -60,7 +58,7 @@ class GlobalExceptionHandler(
 
     @ExceptionHandler(WebExchangeBindException::class)
     fun handleValidationException(ex: WebExchangeBindException): ResponseEntity<ErrorResponse> {
-        val traceId = getTraceId()
+        val traceId = "local-trace-${System.currentTimeMillis()}"
         logger.warn("Validation exception: {}", ex.message)
 
         val fieldErrors = ex.bindingResult.fieldErrors.associate { fieldError: FieldError ->
@@ -81,7 +79,7 @@ class GlobalExceptionHandler(
 
     @ExceptionHandler(ServerWebInputException::class)
     fun handleServerWebInputException(ex: ServerWebInputException): ResponseEntity<ErrorResponse> {
-        val traceId = getTraceId()
+        val traceId = "local-trace-${System.currentTimeMillis()}"
         logger.warn("Invalid input exception: {}", ex.message)
 
         val errorResponse = ErrorResponse(
@@ -97,7 +95,7 @@ class GlobalExceptionHandler(
 
     @ExceptionHandler(AuthenticationException::class)
     fun handleAuthenticationException(ex: AuthenticationException): ResponseEntity<ErrorResponse> {
-        val traceId = getTraceId()
+        val traceId = "local-trace-${System.currentTimeMillis()}"
         logger.warn("Authentication exception: {}", ex.message)
 
         val errorResponse = ErrorResponse(
@@ -113,7 +111,7 @@ class GlobalExceptionHandler(
 
     @ExceptionHandler(IllegalArgumentException::class)
     fun handleIllegalArgumentException(ex: IllegalArgumentException): ResponseEntity<ErrorResponse> {
-        val traceId = getTraceId()
+        val traceId = "local-trace-${System.currentTimeMillis()}"
         logger.warn("Illegal argument exception: {}", ex.message)
 
         val errorResponse = ErrorResponse(
@@ -129,7 +127,7 @@ class GlobalExceptionHandler(
 
     @ExceptionHandler(Exception::class)
     fun handleGenericException(ex: Exception): ResponseEntity<ErrorResponse> {
-        val traceId = getTraceId()
+        val traceId = "local-trace-${System.currentTimeMillis()}"
         logger.error("Unexpected exception: {}", ex.message, ex)
 
         val errorResponse = ErrorResponse(
@@ -143,7 +141,4 @@ class GlobalExceptionHandler(
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse)
     }
 
-    private fun getTraceId(): String? {
-        return tracer.currentSpan()?.context()?.traceId()
-    }
 }
