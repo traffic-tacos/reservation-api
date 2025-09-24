@@ -1,4 +1,5 @@
 import com.google.protobuf.gradle.id
+import java.nio.file.Files
 
 plugins {
 	kotlin("jvm") version "1.9.25"
@@ -7,6 +8,13 @@ plugins {
 	id("io.spring.dependency-management") version "1.1.7"
 	id("com.google.protobuf") version "0.9.4"
 }
+
+// ---- 옵션/기본값 ----
+val contractsRootProp = providers.gradleProperty("contracts.root").orNull    // 외부에서 -Pcontracts.root=/path
+val contractsUseArtifact = providers.gradleProperty("contracts.useArtifact").orNull == "true"
+val defaultContractsRoot = "proto-contracts"  // monorepo 구조: repos/proto-contracts/가 build context에 포함될 때
+val contractsRoot = contractsRootProp ?: defaultContractsRoot
+val contractsDir = file(contractsRoot)
 
 group = "com.traffictacos"
 version = "0.0.1-SNAPSHOT"
@@ -31,7 +39,20 @@ extra["awsSdkVersion"] = "2.28.29"
 extra["resilience4jVersion"] = "2.2.0"
 
 dependencies {
-	// 임시로 proto-contracts 대신 로컬 proto 파일 사용 (추후 실제 패키지로 교체)
+	// gRPC/Protobuf dependencies
+	implementation("io.grpc:grpc-kotlin-stub:1.4.1")
+	implementation("io.grpc:grpc-protobuf:1.66.0")
+	implementation("com.google.protobuf:protobuf-kotlin:3.25.3")
+
+	// ↓ 아티팩트 모드일 때 사용할 좌표(예시). 내부 레지스트리에 배포해두면 더 Best.
+	val contractsVersion = providers.gradleProperty("contracts.version").orElse("1.0.0").get()
+	if (contractsUseArtifact || !contractsDir.isDirectory) {
+		// 생성된 코드 아티팩트를 쓸 때 (옵션 B)
+		// repositories 블록에 내부 레지스트리 추가가 필요할 수 있음
+		// repositories { maven { url = uri("https://maven.pkg.github.com/ORG/PACKAGES") } }
+		// implementation("com.traffictacos:proto-contracts-kotlin:$contractsVersion")
+		logger.warn("Proto-contracts artifact mode enabled but no artifact dependency configured yet")
+	}
 
 	// Spring Boot Core
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
@@ -108,20 +129,14 @@ kotlin {
 }
 
 protobuf {
-	protoc {
-		artifact = "com.google.protobuf:protoc:3.25.3"
-	}
+	protoc { artifact = "com.google.protobuf:protoc:3.25.3" }
 	plugins {
-		id("grpc") {
-			artifact = "io.grpc:protoc-gen-grpc-java:1.66.0"
-		}
-		id("grpckt") {
-			artifact = "io.grpc:protoc-gen-grpc-kotlin:1.4.1:jdk8@jar"
-		}
+		id("grpc")   { artifact = "io.grpc:protoc-gen-grpc-java:1.66.0" }
+		id("grpckt") { artifact = "io.grpc:protoc-gen-grpc-kotlin:1.4.1:jdk8@jar" }
 	}
 	generateProtoTasks {
-		all().forEach {
-			it.plugins {
+		all().configureEach {
+			plugins {
 				id("grpc") {
 					option("@generated=omit")
 				}
@@ -131,6 +146,31 @@ protobuf {
 			}
 		}
 	}
+}
+
+// ---- 소스 경로 전환 ----
+sourceSets {
+	main {
+		proto {
+			srcDirs.clear()
+			if (!contractsUseArtifact && contractsDir.isDirectory) {
+				// 옵션 A: 로컬에 proto-contracts가 있을 때 → 루트를 include root로
+				// (proto 파일들이 import "proto/..." 를 쓰므로 루트가 proto-contracts/ 여야 함)
+				srcDir(contractsDir.path)           // ex) proto-contracts/
+				logger.quiet("Using local proto-contracts at: ${contractsDir.absolutePath}")
+			} else {
+				// 옵션 B: 아티팩트 사용 → 로컬 proto 없음
+				// (generateProto는 비활성화되지 않아도 상관 없지만, 성능 위해 굳이 꺼도 됨)
+				logger.quiet("Proto-contracts not found locally, expecting artifact dependency")
+			}
+		}
+	}
+}
+
+// 아티팩트 모드면 generateProto가 굳이 필요 없지만, 켜져 있어도 영향 없음.
+// 필요하면 아래처럼 비활성화 가능:
+tasks.named("generateProto") {
+	onlyIf { !contractsUseArtifact && contractsDir.isDirectory }
 }
 
 tasks.withType<Test> {

@@ -1,6 +1,6 @@
 package com.traffictacos.reservation.config
 
-import reservationv1.InventoryServiceGrpcKt
+import com.traffic_tacos.reservation.v1.InventoryServiceGrpcKt
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import org.springframework.beans.factory.annotation.Value

@@ -1,14 +1,14 @@
 package com.traffictacos.reservation.grpc
 
-import reservationv1.InventoryServiceGrpcKt
-import reservationv1.CheckAvailabilityRequest
-import reservationv1.CheckAvailabilityResponse
-import reservationv1.HoldSeatsRequest
-import reservationv1.HoldSeatsResponse
-import reservationv1.CommitReservationRequest
-import reservationv1.CommitReservationResponse
-import reservationv1.ReleaseHoldRequest
-import reservationv1.ReleaseHoldResponse
+import com.traffic_tacos.reservation.v1.InventoryServiceGrpcKt
+import com.traffic_tacos.reservation.v1.CheckAvailabilityRequest
+import com.traffic_tacos.reservation.v1.CheckAvailabilityResponse
+import com.traffic_tacos.reservation.v1.ReserveSeatRequest
+import com.traffic_tacos.reservation.v1.ReserveSeatResponse
+import com.traffic_tacos.reservation.v1.CommitReservationRequest
+import com.traffic_tacos.reservation.v1.CommitReservationResponse
+import com.traffic_tacos.reservation.v1.ReleaseHoldRequest
+import com.traffic_tacos.reservation.v1.ReleaseHoldResponse
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker
 import io.github.resilience4j.timelimiter.annotation.TimeLimiter
 import kotlinx.coroutines.reactive.awaitFirst
@@ -60,20 +60,19 @@ class InventoryGrpcClient(
         reservationId: String,
         userId: String,
         holdDurationSeconds: Int = 60
-    ): HoldSeatsResponse {
+    ): ReserveSeatResponse {
         logger.debug("Holding seats for eventId: {}, seatIds: {}, reservationId: {}, userId: {}", eventId, seatIds, reservationId, userId)
 
-        val request = HoldSeatsRequest.newBuilder()
+        val request = ReserveSeatRequest.newBuilder()
             .setEventId(eventId)
             .addAllSeatIds(seatIds)
             .setQuantity(quantity)
             .setReservationId(reservationId)
             .setUserId(userId)
-            .setHoldDurationSeconds(holdDurationSeconds)
             .build()
 
         return try {
-            val response = inventoryStub.holdSeats(request)
+            val response = inventoryStub.reserveSeat(request)
             logger.debug("Hold seats response: {}", response)
             response
         } catch (e: Exception) {
@@ -90,7 +89,6 @@ class InventoryGrpcClient(
         seatIds: List<String>,
         quantity: Int,
         paymentIntentId: String,
-        holdToken: String,
         userId: String
     ): CommitReservationResponse {
         logger.debug("Committing reservation: {}, eventId: {}, seatIds: {}, userId: {}", reservationId, eventId, seatIds, userId)
@@ -101,7 +99,6 @@ class InventoryGrpcClient(
             .addAllSeatIds(seatIds)
             .setQuantity(quantity)
             .setPaymentIntentId(paymentIntentId)
-            .setHoldToken(holdToken)
             .setUserId(userId)
             .build()
 
@@ -122,7 +119,6 @@ class InventoryGrpcClient(
         eventId: String,
         seatIds: List<String>,
         quantity: Int,
-        holdToken: String,
         userId: String
     ): ReleaseHoldResponse {
         logger.debug("Releasing hold for reservation: {}, eventId: {}, seatIds: {}, userId: {}", reservationId, eventId, seatIds, userId)
@@ -132,7 +128,6 @@ class InventoryGrpcClient(
             .setEventId(eventId)
             .addAllSeatIds(seatIds)
             .setQuantity(quantity)
-            .setHoldToken(holdToken)
             .setUserId(userId)
             .build()
 

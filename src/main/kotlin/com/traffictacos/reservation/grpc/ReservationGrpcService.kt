@@ -1,18 +1,18 @@
 package com.traffictacos.reservation.grpc
 
-import reservationv1.ReservationServiceGrpcKt
-import reservationv1.CreateReservationRequest
-import reservationv1.CreateReservationResponse
-import reservationv1.GetReservationRequest
-import reservationv1.GetReservationResponse
-import reservationv1.ConfirmReservationRequest
-import reservationv1.ConfirmReservationResponse
-import reservationv1.CancelReservationRequest
-import reservationv1.CancelReservationResponse
-import reservationv1.ReservationStatus
-import commonv1.Error
-import commonv1.ErrorCode
-import commonv1.Money
+import com.traffic_tacos.reservation.v1.ReservationServiceGrpcKt
+import com.traffic_tacos.reservation.v1.CreateReservationRequest
+import com.traffic_tacos.reservation.v1.CreateReservationResponse
+import com.traffic_tacos.reservation.v1.GetReservationRequest
+import com.traffic_tacos.reservation.v1.GetReservationResponse
+import com.traffic_tacos.reservation.v1.ConfirmReservationRequest
+import com.traffic_tacos.reservation.v1.ConfirmReservationResponse
+import com.traffic_tacos.reservation.v1.CancelReservationRequest
+import com.traffic_tacos.reservation.v1.CancelReservationResponse
+import com.traffic_tacos.reservation.v1.ReservationStatus
+import com.traffic_tacos.common.v1.Error
+import com.traffic_tacos.common.v1.ErrorCode
+import com.traffic_tacos.common.v1.Money
 import com.traffictacos.reservation.service.ReservationService
 import com.traffictacos.reservation.service.IdempotencyService
 import com.traffictacos.reservation.service.ReservationException
@@ -59,7 +59,6 @@ class ReservationGrpcService(
                 .setReservationId(response.reservationId)
                 .setStatus(convertToGrpcStatus(response.status))
                 .setHoldExpiresAt(response.holdExpiresAt?.let { convertToTimestamp(it) } ?: Timestamp.getDefaultInstance())
-                .setMessage(response.message)
                 .build()
 
         } catch (e: ReservationException) {
@@ -77,7 +76,7 @@ class ReservationGrpcService(
             CreateReservationResponse.newBuilder()
                 .setError(
                     Error.newBuilder()
-                        .setCode(ErrorCode.ERROR_CODE_INTERNAL_ERROR)
+                        .setCode(ErrorCode.ERROR_CODE_INTERNAL)
                         .setMessage("Internal server error")
                         .build()
                 )
@@ -92,14 +91,9 @@ class ReservationGrpcService(
             val response = reservationService.getReservation(request.reservationId)
 
             GetReservationResponse.newBuilder()
-                .setReservationId(response.reservationId)
-                .setEventId(response.eventId)
-                .setQuantity(response.quantity)
-                .addAllSeatIds(response.seatIds)
-                .setStatus(convertToGrpcStatus(response.status))
-                .setHoldExpiresAt(response.holdExpiresAt?.let { convertToTimestamp(it) } ?: Timestamp.getDefaultInstance())
-                .setCreatedAt(convertToTimestamp(response.createdAt))
-                .setUpdatedAt(convertToTimestamp(response.updatedAt))
+                .setReservation(
+                    buildReservationMessage(response)
+                )
                 .build()
 
         } catch (e: ReservationException) {
@@ -117,7 +111,7 @@ class ReservationGrpcService(
             GetReservationResponse.newBuilder()
                 .setError(
                     Error.newBuilder()
-                        .setCode(ErrorCode.ERROR_CODE_INTERNAL_ERROR)
+                        .setCode(ErrorCode.ERROR_CODE_INTERNAL)
                         .setMessage("Internal server error")
                         .build()
                 )
@@ -146,10 +140,8 @@ class ReservationGrpcService(
             }
 
             ConfirmReservationResponse.newBuilder()
-                .setOrderId(response.orderId)
-                .setReservationId(response.reservationId)
+                .setOrderId(response.orderId ?: "")
                 .setStatus(convertToGrpcStatus(response.status))
-                .setMessage(response.message)
                 .build()
 
         } catch (e: ReservationException) {
@@ -167,7 +159,7 @@ class ReservationGrpcService(
             ConfirmReservationResponse.newBuilder()
                 .setError(
                     Error.newBuilder()
-                        .setCode(ErrorCode.ERROR_CODE_INTERNAL_ERROR)
+                        .setCode(ErrorCode.ERROR_CODE_INTERNAL)
                         .setMessage("Internal server error")
                         .build()
                 )
@@ -195,9 +187,7 @@ class ReservationGrpcService(
             }
 
             CancelReservationResponse.newBuilder()
-                .setReservationId(response.reservationId)
                 .setStatus(convertToGrpcStatus(response.status))
-                .setMessage(response.message)
                 .build()
 
         } catch (e: ReservationException) {
@@ -215,7 +205,7 @@ class ReservationGrpcService(
             CancelReservationResponse.newBuilder()
                 .setError(
                     Error.newBuilder()
-                        .setCode(ErrorCode.ERROR_CODE_INTERNAL_ERROR)
+                        .setCode(ErrorCode.ERROR_CODE_INTERNAL)
                         .setMessage("Internal server error")
                         .build()
                 )
@@ -235,13 +225,13 @@ class ReservationGrpcService(
 
     private fun convertToGrpcErrorCode(errorCode: com.traffictacos.reservation.dto.ErrorCode): ErrorCode {
         return when (errorCode) {
-            com.traffictacos.reservation.dto.ErrorCode.RESERVATION_NOT_FOUND -> ErrorCode.ERROR_CODE_RESERVATION_NOT_FOUND
-            com.traffictacos.reservation.dto.ErrorCode.SEAT_UNAVAILABLE -> ErrorCode.ERROR_CODE_SEATS_UNAVAILABLE
-            com.traffictacos.reservation.dto.ErrorCode.RESERVATION_EXPIRED -> ErrorCode.ERROR_CODE_HOLD_EXPIRED
-            com.traffictacos.reservation.dto.ErrorCode.RESERVATION_ALREADY_CONFIRMED -> ErrorCode.ERROR_CODE_INVALID_REQUEST
-            com.traffictacos.reservation.dto.ErrorCode.RESERVATION_ALREADY_CANCELLED -> ErrorCode.ERROR_CODE_INVALID_REQUEST
-            com.traffictacos.reservation.dto.ErrorCode.INVENTORY_SERVICE_ERROR -> ErrorCode.ERROR_CODE_INTERNAL_ERROR
-            else -> ErrorCode.ERROR_CODE_INTERNAL_ERROR
+            com.traffictacos.reservation.dto.ErrorCode.RESERVATION_NOT_FOUND -> ErrorCode.ERROR_CODE_NOT_FOUND
+            com.traffictacos.reservation.dto.ErrorCode.SEAT_UNAVAILABLE -> ErrorCode.ERROR_CODE_INSUFFICIENT_INVENTORY
+            com.traffictacos.reservation.dto.ErrorCode.RESERVATION_EXPIRED -> ErrorCode.ERROR_CODE_RESERVATION_EXPIRED
+            com.traffictacos.reservation.dto.ErrorCode.RESERVATION_ALREADY_CONFIRMED -> ErrorCode.ERROR_CODE_INVALID_ARGUMENT
+            com.traffictacos.reservation.dto.ErrorCode.RESERVATION_ALREADY_CANCELLED -> ErrorCode.ERROR_CODE_INVALID_ARGUMENT
+            com.traffictacos.reservation.dto.ErrorCode.INVENTORY_SERVICE_ERROR -> ErrorCode.ERROR_CODE_INTERNAL
+            else -> ErrorCode.ERROR_CODE_INTERNAL
         }
     }
 
@@ -249,6 +239,23 @@ class ReservationGrpcService(
         return Timestamp.newBuilder()
             .setSeconds(instant.epochSecond)
             .setNanos(instant.nano)
+            .build()
+    }
+
+    private fun buildReservationMessage(response: com.traffictacos.reservation.dto.ReservationDetailsResponse): com.traffic_tacos.reservation.v1.Reservation {
+        return com.traffic_tacos.reservation.v1.Reservation.newBuilder()
+            .setReservationId(response.reservationId)
+            .setEventId(response.eventId)
+            .setUserId(response.userId ?: "")
+            .setStatus(convertToGrpcStatus(response.status))
+            .setQuantity(response.quantity)
+            .setCreatedAt(convertToTimestamp(response.createdAt))
+            .setUpdatedAt(convertToTimestamp(response.updatedAt))
+            .apply {
+                response.holdExpiresAt?.let {
+                    setHoldExpiresAt(convertToTimestamp(it))
+                }
+            }
             .build()
     }
 }

@@ -7,10 +7,10 @@ import com.traffictacos.reservation.domain.OrderStatus
 import com.traffictacos.reservation.dto.*
 import com.traffictacos.reservation.grpc.InventoryGrpcService
 import com.traffictacos.reservation.repository.ReservationRepository
-import reservationv1.CheckAvailabilityRequest
-import reservationv1.HoldSeatsRequest
-import reservationv1.CommitReservationRequest
-import reservationv1.ReleaseHoldRequest
+import com.traffic_tacos.reservation.v1.CheckAvailabilityRequest
+import com.traffic_tacos.reservation.v1.ReserveSeatRequest
+import com.traffic_tacos.reservation.v1.CommitReservationRequest
+import com.traffic_tacos.reservation.v1.ReleaseHoldRequest
 import com.traffictacos.reservation.repository.OrderRepository
 import kotlinx.coroutines.reactive.awaitFirst
 import kotlinx.coroutines.reactive.awaitFirstOrNull
@@ -44,7 +44,6 @@ class ReservationService(
             .setEventId(request.eventId)
             .setQuantity(request.quantity)
             .addAllSeatIds(request.seatIds)
-            .setUserId(userId)
             .build()
 
         val availabilityResponse = inventoryGrpcService.checkAvailability(availabilityRequest)
@@ -52,7 +51,7 @@ class ReservationService(
         if (!availabilityResponse.available) {
             throw ReservationException(
                 ErrorCode.SEAT_UNAVAILABLE,
-                "Requested seats are not available: ${availabilityResponse.message}"
+                "Requested seats are not available: ${availabilityResponse.error?.message ?: "Unknown error"}"
             )
         }
 
@@ -61,21 +60,21 @@ class ReservationService(
         val holdExpiresAt = Instant.now().plusSeconds(60)
 
         // Hold seats in inventory service
-        val holdRequest = HoldSeatsRequest.newBuilder()
+        val holdRequest = ReserveSeatRequest.newBuilder()
             .setEventId(request.eventId)
-            .addAllSeatIds(availabilityResponse.availableSeatIdsList)
+            .addAllSeatIds(availabilityResponse.availableSeatsList.map { it.id })
             .setQuantity(request.quantity)
             .setReservationId(reservationId)
             .setUserId(userId)
-            .setHoldDurationSeconds(60)
             .build()
 
-        val holdResponse = inventoryGrpcService.holdSeats(holdRequest)
+        val holdResponse = inventoryGrpcService.reserveSeat(holdRequest)
 
-        if (!holdResponse.success) {
+        if (holdResponse.status != com.traffic_tacos.reservation.v1.HoldStatus.HOLD_STATUS_ACTIVE) {
+            val errorMessage = holdResponse.error?.message ?: "Unknown error"
             throw ReservationException(
                 ErrorCode.INVENTORY_SERVICE_ERROR,
-                "Failed to hold seats: ${holdResponse.message}"
+                "Failed to hold seats: $errorMessage"
             )
         }
 
@@ -84,10 +83,10 @@ class ReservationService(
             eventId = request.eventId,
             userId = userId,
             quantity = request.quantity,
-            seatIds = holdResponse.heldSeatIdsList,
+            seatIds = holdResponse.reservedSeatsList.map { it.id },
             status = ReservationStatus.HOLD,
             holdExpiresAt = holdExpiresAt,
-            holdToken = holdResponse.holdToken,
+            holdToken = holdResponse.holdId,
             idempotencyKey = idempotencyKey
         )
 
@@ -156,14 +155,14 @@ class ReservationService(
             .addAllSeatIds(reservation.seatIds)
             .setQuantity(reservation.quantity)
             .setPaymentIntentId(request.paymentIntentId)
-            .setHoldToken(reservation.holdToken ?: "")
             .setUserId(userId)
             .build()
 
         val commitResponse = inventoryGrpcService.commitReservation(commitRequest)
 
-        if (!commitResponse.success) {
-            throw ReservationException(ErrorCode.INVENTORY_SERVICE_ERROR, "Failed to commit reservation: ${commitResponse.message}")
+        if (commitResponse.status != com.traffic_tacos.reservation.v1.CommitStatus.COMMIT_STATUS_SUCCESS) {
+            val errorMessage = commitResponse.error?.message ?: "Unknown error"
+            throw ReservationException(ErrorCode.INVENTORY_SERVICE_ERROR, "Failed to commit reservation: $errorMessage")
         }
 
         // Update reservation status
@@ -220,14 +219,14 @@ class ReservationService(
             .setEventId(reservation.eventId)
             .addAllSeatIds(reservation.seatIds)
             .setQuantity(reservation.quantity)
-            .setHoldToken(reservation.holdToken ?: "")
-            .setUserId(userId)
+            .setReason("CANCELLED")
             .build()
 
         val releaseResponse = inventoryGrpcService.releaseHold(releaseRequest)
 
-        if (!releaseResponse.success) {
-            logger.warn("Failed to release hold in inventory service: {}", releaseResponse.message)
+        if (releaseResponse.status != com.traffic_tacos.reservation.v1.ReleaseStatus.RELEASE_STATUS_SUCCESS) {
+            val errorMessage = releaseResponse.error?.message ?: "Unknown error"
+            logger.warn("Failed to release hold in inventory service: {}", errorMessage)
         }
 
         // Update reservation status

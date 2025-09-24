@@ -1,16 +1,16 @@
 package com.traffictacos.reservation.grpc
 
-import reservationv1.InventoryServiceGrpcKt
-import reservationv1.CheckAvailabilityRequest
-import reservationv1.CheckAvailabilityResponse
-import reservationv1.HoldSeatsRequest
-import reservationv1.HoldSeatsResponse
-import reservationv1.CommitReservationRequest
-import reservationv1.CommitReservationResponse
-import reservationv1.ReleaseHoldRequest
-import reservationv1.ReleaseHoldResponse
-import commonv1.Error
-import commonv1.ErrorCode
+import com.traffic_tacos.reservation.v1.InventoryServiceGrpcKt
+import com.traffic_tacos.reservation.v1.CheckAvailabilityRequest
+import com.traffic_tacos.reservation.v1.CheckAvailabilityResponse
+import com.traffic_tacos.reservation.v1.ReserveSeatRequest
+import com.traffic_tacos.reservation.v1.ReserveSeatResponse
+import com.traffic_tacos.reservation.v1.CommitReservationRequest
+import com.traffic_tacos.reservation.v1.CommitReservationResponse
+import com.traffic_tacos.reservation.v1.ReleaseHoldRequest
+import com.traffic_tacos.reservation.v1.ReleaseHoldResponse
+import com.traffic_tacos.common.v1.Error
+import com.traffic_tacos.common.v1.ErrorCode
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import net.devh.boot.grpc.server.service.GrpcService
@@ -57,7 +57,7 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
                         .setMessage("Some requested seats are not available")
                         .setError(
                             Error.newBuilder()
-                                .setCode(ErrorCode.ERROR_CODE_SEATS_UNAVAILABLE)
+                                .setCode(com.traffic_tacos.common.v1.ErrorCode.ERROR_CODE_INSUFFICIENT_INVENTORY)
                                 .setMessage("Requested seats are not available")
                                 .build()
                         )
@@ -79,7 +79,7 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
                         .setMessage("Not enough seats available")
                         .setError(
                             Error.newBuilder()
-                                .setCode(ErrorCode.ERROR_CODE_SEATS_UNAVAILABLE)
+                                .setCode(com.traffic_tacos.common.v1.ErrorCode.ERROR_CODE_INSUFFICIENT_INVENTORY)
                                 .setMessage("Not enough seats available")
                                 .build()
                         )
@@ -92,7 +92,7 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
                 .setAvailable(false)
                 .setError(
                     Error.newBuilder()
-                        .setCode(ErrorCode.ERROR_CODE_INTERNAL_ERROR)
+                        .setCode(ErrorCode.ERROR_CODE_INTERNAL)
                         .setMessage("Internal server error")
                         .build()
                 )
@@ -100,7 +100,7 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
         }
     }
 
-    override suspend fun holdSeats(request: HoldSeatsRequest): HoldSeatsResponse {
+    override suspend fun reserveSeat(request: ReserveSeatRequest): ReserveSeatResponse {
         logger.info("Holding seats for eventId: {}, seatIds: {}, reservationId: {}",
                    request.eventId, request.seatIdsList, request.reservationId)
 
@@ -113,49 +113,42 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
 
             if (canHold) {
                 val holdToken = UUID.randomUUID().toString()
-                val expiresAt = Instant.now().plusSeconds(request.holdDurationSeconds.toLong())
+                val expiresAt = Instant.now().plusSeconds(60L) // 60 seconds default hold
 
                 // Hold the seats
                 requestedSeats.forEach { seatId ->
                     heldSeats[seatId] = HoldInfo(
                         reservationId = request.reservationId,
-                        holdToken = holdToken,
-                        expiresAt = expiresAt,
+                                                expiresAt = expiresAt,
                         userId = request.userId
                     )
                 }
 
                 logger.info("Successfully held {} seats for reservation {}", requestedSeats.size, request.reservationId)
 
-                HoldSeatsResponse.newBuilder()
-                    .setSuccess(true)
-                    .addAllHeldSeatIds(requestedSeats)
-                    .setHoldToken(holdToken)
-                    .setExpiresAt(expiresAt.epochSecond)
-                    .setMessage("Seats held successfully")
+                ReserveSeatResponse.newBuilder()
+                    .setHoldId(holdToken)
+                    .setStatus(com.traffic_tacos.reservation.v1.HoldStatus.HOLD_STATUS_ACTIVE)
                     .build()
             } else {
                 val unavailableSeats = requestedSeats.filter { it !in availableSeats }
                 logger.warn("Cannot hold seats, some seats unavailable: {}", unavailableSeats)
 
-                HoldSeatsResponse.newBuilder()
-                    .setSuccess(false)
-                    .setMessage("Some seats are not available: $unavailableSeats")
+                ReserveSeatResponse.newBuilder()
+                    .setStatus(com.traffic_tacos.reservation.v1.HoldStatus.HOLD_STATUS_UNSPECIFIED)
                     .setError(
-                        Error.newBuilder()
-                            .setCode(ErrorCode.ERROR_CODE_SEATS_UNAVAILABLE)
-                            .setMessage("Some seats are not available")
+                        com.traffic_tacos.common.v1.Error.newBuilder()
+                            .setMessage("Some seats are not available: $unavailableSeats")
                             .build()
                     )
                     .build()
             }
         } catch (e: Exception) {
             logger.error("Error holding seats for eventId: {}", request.eventId, e)
-            HoldSeatsResponse.newBuilder()
-                .setSuccess(false)
+            ReserveSeatResponse.newBuilder()
+                .setStatus(com.traffic_tacos.reservation.v1.HoldStatus.HOLD_STATUS_UNSPECIFIED)
                 .setError(
-                    Error.newBuilder()
-                        .setCode(ErrorCode.ERROR_CODE_INTERNAL_ERROR)
+                    com.traffic_tacos.common.v1.Error.newBuilder()
                         .setMessage("Internal server error")
                         .build()
                 )
@@ -192,22 +185,18 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
                 logger.info("Successfully committed reservation {} with {} seats", request.reservationId, validSeats.size)
 
                 CommitReservationResponse.newBuilder()
-                    .setSuccess(true)
-                    .setMessage("Reservation committed successfully")
-                    .addAllConfirmedSeatIds(validSeats)
-                    .setConfirmationId(confirmationId)
+                    .setOrderId(confirmationId)
+                    .setStatus(com.traffic_tacos.reservation.v1.CommitStatus.COMMIT_STATUS_SUCCESS)
                     .build()
             } else {
                 val invalidSeats = requestedSeats - validSeats.toSet()
                 logger.warn("Cannot commit reservation, invalid hold for seats: {}", invalidSeats)
 
                 CommitReservationResponse.newBuilder()
-                    .setSuccess(false)
-                    .setMessage("Invalid hold for some seats: $invalidSeats")
+                    .setStatus(com.traffic_tacos.reservation.v1.CommitStatus.COMMIT_STATUS_FAILED_EXPIRED)
                     .setError(
-                        Error.newBuilder()
-                            .setCode(ErrorCode.ERROR_CODE_HOLD_EXPIRED)
-                            .setMessage("Hold expired or invalid for some seats")
+                        com.traffic_tacos.common.v1.Error.newBuilder()
+                            .setMessage("Hold expired or invalid for some seats: $invalidSeats")
                             .build()
                     )
                     .build()
@@ -215,10 +204,9 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
         } catch (e: Exception) {
             logger.error("Error committing reservation: {}", request.reservationId, e)
             CommitReservationResponse.newBuilder()
-                .setSuccess(false)
+                .setStatus(com.traffic_tacos.reservation.v1.CommitStatus.COMMIT_STATUS_FAILED_CONFLICT)
                 .setError(
-                    Error.newBuilder()
-                        .setCode(ErrorCode.ERROR_CODE_INTERNAL_ERROR)
+                    com.traffic_tacos.common.v1.Error.newBuilder()
                         .setMessage("Internal server error")
                         .build()
                 )
@@ -250,18 +238,15 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
             logger.info("Released hold for {} seats from reservation {}", releasedSeats.size, request.reservationId)
 
             ReleaseHoldResponse.newBuilder()
-                .setSuccess(true)
-                .setMessage("Hold released successfully")
-                .addAllReleasedSeatIds(releasedSeats)
+                .setStatus(com.traffic_tacos.reservation.v1.ReleaseStatus.RELEASE_STATUS_SUCCESS)
                 .build()
 
         } catch (e: Exception) {
             logger.error("Error releasing hold for reservation: {}", request.reservationId, e)
             ReleaseHoldResponse.newBuilder()
-                .setSuccess(false)
+                .setStatus(com.traffic_tacos.reservation.v1.ReleaseStatus.RELEASE_STATUS_FAILED)
                 .setError(
-                    Error.newBuilder()
-                        .setCode(ErrorCode.ERROR_CODE_INTERNAL_ERROR)
+                    com.traffic_tacos.common.v1.Error.newBuilder()
                         .setMessage("Internal server error")
                         .build()
                 )
