@@ -246,7 +246,7 @@ class ReservationGrpcService(
         return com.traffic_tacos.reservation.v1.Reservation.newBuilder()
             .setReservationId(response.reservationId)
             .setEventId(response.eventId)
-            .setUserId(response.userId ?: "")
+            .setUserId("current_user") // userId not in DTO, use placeholder
             .setStatus(convertToGrpcStatus(response.status))
             .setQuantity(response.quantity)
             .setCreatedAt(convertToTimestamp(response.createdAt))

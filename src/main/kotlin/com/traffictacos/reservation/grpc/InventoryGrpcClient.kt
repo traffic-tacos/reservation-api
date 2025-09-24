@@ -38,7 +38,6 @@ class InventoryGrpcClient(
             .setEventId(eventId)
             .setQuantity(quantity)
             .addAllSeatIds(seatIds)
-            .setUserId(userId)
             .build()
 
         return try {
@@ -128,7 +127,6 @@ class InventoryGrpcClient(
             .setEventId(eventId)
             .addAllSeatIds(seatIds)
             .setQuantity(quantity)
-            .setUserId(userId)
             .build()
 
         return try {
@@ -152,7 +150,6 @@ class InventoryGrpcClient(
         logger.warn("Fallback for checkAvailability: {}", ex.message)
         return CheckAvailabilityResponse.newBuilder()
             .setAvailable(false)
-            .setMessage("Service temporarily unavailable")
             .build()
     }
 
@@ -164,11 +161,10 @@ class InventoryGrpcClient(
         userId: String,
         holdDurationSeconds: Int,
         ex: Exception
-    ): HoldSeatsResponse {
+    ): ReserveSeatResponse {
         logger.warn("Fallback for holdSeats: {}", ex.message)
-        return HoldSeatsResponse.newBuilder()
-            .setSuccess(false)
-            .setMessage("Service temporarily unavailable")
+        return ReserveSeatResponse.newBuilder()
+            .setStatus(com.traffic_tacos.reservation.v1.HoldStatus.HOLD_STATUS_UNSPECIFIED)
             .build()
     }
 
@@ -178,14 +174,12 @@ class InventoryGrpcClient(
         seatIds: List<String>,
         quantity: Int,
         paymentIntentId: String,
-        holdToken: String,
         userId: String,
         ex: Exception
     ): CommitReservationResponse {
         logger.warn("Fallback for commitReservation: {}", ex.message)
         return CommitReservationResponse.newBuilder()
-            .setSuccess(false)
-            .setMessage("Service temporarily unavailable")
+            .setStatus(com.traffic_tacos.reservation.v1.CommitStatus.COMMIT_STATUS_FAILED_CONFLICT)
             .build()
     }
 
@@ -194,14 +188,12 @@ class InventoryGrpcClient(
         eventId: String,
         seatIds: List<String>,
         quantity: Int,
-        holdToken: String,
         userId: String,
         ex: Exception
     ): ReleaseHoldResponse {
         logger.warn("Fallback for releaseHold: {}", ex.message)
         return ReleaseHoldResponse.newBuilder()
-            .setSuccess(false)
-            .setMessage("Service temporarily unavailable")
+            .setStatus(com.traffic_tacos.reservation.v1.ReleaseStatus.RELEASE_STATUS_FAILED)
             .build()
     }
 }

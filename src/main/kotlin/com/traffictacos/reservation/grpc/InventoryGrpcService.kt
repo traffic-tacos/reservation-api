@@ -9,6 +9,8 @@ import com.traffic_tacos.reservation.v1.CommitReservationRequest
 import com.traffic_tacos.reservation.v1.CommitReservationResponse
 import com.traffic_tacos.reservation.v1.ReleaseHoldRequest
 import com.traffic_tacos.reservation.v1.ReleaseHoldResponse
+import com.traffic_tacos.common.v1.Seat
+import com.traffic_tacos.common.v1.SeatStatus
 import com.traffic_tacos.common.v1.Error
 import com.traffic_tacos.common.v1.ErrorCode
 import org.slf4j.LoggerFactory
@@ -44,17 +46,28 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
                 val availableRequestedSeats = requestedSeats.filter { it in availableSeats }
 
                 if (availableRequestedSeats.size >= request.quantity) {
-                    CheckAvailabilityResponse.newBuilder()
+                    val responseBuilder = CheckAvailabilityResponse.newBuilder()
                         .setAvailable(true)
-                        .addAllAvailableSeatIds(availableRequestedSeats.take(request.quantity))
-                        .setTotalAvailable(availableSeats.size)
-                        .setMessage("Requested seats are available")
-                        .build()
+                        .setRemainingInSection(availableSeats.size)
+
+                    // Add available seats as Seat objects
+                    availableRequestedSeats.take(request.quantity).forEach { seatId ->
+                        val parts = seatId.split("-")
+                        responseBuilder.addAvailableSeats(
+                            Seat.newBuilder()
+                                .setId(seatId)
+                                .setSection(if (parts.size > 1) parts[0] else "A")
+                                .setNumber(if (parts.size > 1) parts[1] else seatId)
+                                .setStatus(SeatStatus.SEAT_STATUS_AVAILABLE)
+                                .build()
+                        )
+                    }
+
+                    responseBuilder.build()
                 } else {
                     CheckAvailabilityResponse.newBuilder()
                         .setAvailable(false)
-                        .setTotalAvailable(availableSeats.size)
-                        .setMessage("Some requested seats are not available")
+                        .setRemainingInSection(availableSeats.size)
                         .setError(
                             Error.newBuilder()
                                 .setCode(com.traffic_tacos.common.v1.ErrorCode.ERROR_CODE_INSUFFICIENT_INVENTORY)
@@ -66,17 +79,28 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
             } else {
                 // Check general availability
                 if (availableSeats.size >= request.quantity) {
-                    CheckAvailabilityResponse.newBuilder()
+                    val responseBuilder = CheckAvailabilityResponse.newBuilder()
                         .setAvailable(true)
-                        .addAllAvailableSeatIds(availableSeats.take(request.quantity))
-                        .setTotalAvailable(availableSeats.size)
-                        .setMessage("Seats are available")
-                        .build()
+                        .setRemainingInSection(availableSeats.size)
+
+                    // Add available seats as Seat objects
+                    availableSeats.take(request.quantity).forEach { seatId ->
+                        val parts = seatId.split("-")
+                        responseBuilder.addAvailableSeats(
+                            Seat.newBuilder()
+                                .setId(seatId)
+                                .setSection(if (parts.size > 1) parts[0] else "A")
+                                .setNumber(if (parts.size > 1) parts[1] else seatId)
+                                .setStatus(SeatStatus.SEAT_STATUS_AVAILABLE)
+                                .build()
+                        )
+                    }
+
+                    responseBuilder.build()
                 } else {
                     CheckAvailabilityResponse.newBuilder()
                         .setAvailable(false)
-                        .setTotalAvailable(availableSeats.size)
-                        .setMessage("Not enough seats available")
+                        .setRemainingInSection(availableSeats.size)
                         .setError(
                             Error.newBuilder()
                                 .setCode(com.traffic_tacos.common.v1.ErrorCode.ERROR_CODE_INSUFFICIENT_INVENTORY)
@@ -119,7 +143,8 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
                 requestedSeats.forEach { seatId ->
                     heldSeats[seatId] = HoldInfo(
                         reservationId = request.reservationId,
-                                                expiresAt = expiresAt,
+                        holdToken = holdToken,
+                        expiresAt = expiresAt,
                         userId = request.userId
                     )
                 }
@@ -162,7 +187,8 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
 
         return try {
             val requestedSeats = request.seatIdsList
-            val holdToken = request.holdToken
+            // Generate hold token since it's not in request
+            val holdToken = UUID.randomUUID().toString()
 
             // Verify hold tokens and remove from held seats
             val validSeats = requestedSeats.filter { seatId ->
@@ -220,7 +246,8 @@ class InventoryGrpcService : InventoryServiceGrpcKt.InventoryServiceCoroutineImp
 
         return try {
             val requestedSeats = request.seatIdsList
-            val holdToken = request.holdToken
+            // Generate hold token since it's not in request
+            val holdToken = UUID.randomUUID().toString()
 
             // Verify hold tokens and remove holds
             val releasedSeats = requestedSeats.filter { seatId ->
