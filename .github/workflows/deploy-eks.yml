@@ -1,0 +1,55 @@
+name: Deploy to EKS
+
+on:
+  push:
+    branches: [ cicd ] # main
+
+env:
+  AWS_REGION: ap-southeast-2
+  CLUSTER_NAME: ticket-cluster  # 고정?
+  ECR_REPO: 137406935518.dkr.ecr.ap-southeast-2.amazonaws.com/traffic-tacos/traffic-tacos-reservation-api   # terraform으로 동적으로 생성되면?
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.ECR_REPO }}:${{ github.sha }}
+            ${{ env.ECR_REPO }}:latest
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
+
+      - name: Deploy manifests
+        run: |
+          kubectl apply -f k8s/deploy/
+          kubectl set image deploy/reservation-api reservation-api=${{ env.ECR_REPO }}:${{ github.sha }}

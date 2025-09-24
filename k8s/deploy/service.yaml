@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: reservation-api
+  labels:
+    app: reservation-api
+spec:
+  selector:
+    app: reservation-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8010
+    - name: grpc
+      port: 8011
+      targetPort: 8011
+  type: ClusterIP
