@@ -18,20 +18,23 @@ spec:
         - name: reservation-api
           image: 137406935518.dkr.ecr.ap-southeast-2.amazonaws.com/traffic-tacos/reservation-api:latest
           ports:
-            - containerPort: 8010 # REST
-            - containerPort: 8011 # gRPC
-          env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: prod
+            - name: http
+              containerPort: 8010 # REST
+            - name: grpc
+              containerPort: 8011 # gRPC
           readinessProbe:
             httpGet:
-              path: /actuator/health
-              port: 8010
+              path: /actuator/health/readiness
+              port: http
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /actuator/health
-              port: 8010
+              path: /actuator/health/liveness
+              port: grpc
             initialDelaySeconds: 30
             periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
