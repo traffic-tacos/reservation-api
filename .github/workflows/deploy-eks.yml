@@ -2,13 +2,13 @@ name: Deploy to EKS
 
 on:
   push:
-    branches: [ cicd ]
+    branches: [ main, cicd ]
   workflow_dispatch: {}
 
 env:
   AWS_REGION: ap-southeast-2
-  CLUSTER_NAME: ticket-cluster  # 고정?
-  ECR_REPO: 137406935518.dkr.ecr.ap-southeast-2.amazonaws.com/traffic-tacos/traffic-tacos-app
+  CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+  ECR_REPO: ${{ secrets.ECR_REPO }}
 
 jobs:
   deploy:
@@ -35,7 +35,15 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-        
+
+      - name: Checkout proto contracts repo
+        uses: actions/checkout@v4
+        with:
+          repository: traffic-tacos/proto-contracts
+          path: proto-contracts
+          ref: main
+          # token: ${{ secrets.GH_TOKEN_CONTRACTS_REPO_READ }}   # 만약에 private repo 면
+    
       - name: Build & Push Docker image
         uses: docker/build-push-action@v6
         with:
