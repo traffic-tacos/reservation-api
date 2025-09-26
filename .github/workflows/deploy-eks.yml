@@ -39,8 +39,10 @@ jobs:
       - name: Build & Push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./Dockerfile
+          context: .                              # repo root
+          file: ./reservation-api/Dockerfile
+          build-contexts: |
+            contracts=./proto-contracts
           push: true
           tags: |
             ${{ env.ECR_REPO }}:${{ github.sha }}
