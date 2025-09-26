@@ -2,7 +2,7 @@ name: Deploy to EKS
 
 on:
   push:
-    branches: [ main, cicd ]
+    branches: [ main ]
   workflow_dispatch: {}
 
 env:
@@ -12,7 +12,8 @@ env:
 
 jobs:
   deploy:
-    name: Build & Deploy
+    # name: Build & Deploy
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -56,11 +57,11 @@ jobs:
             ${{ env.ECR_REPO }}:${{ github.sha }}
             ${{ env.ECR_REPO }}:latest
 
-      - name: Update kubeconfig
-        run: |
-          aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
+      # - name: Update kubeconfig
+      #   run: |
+      #     aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
 
-      - name: Deploy manifests
-        run: |
-          kubectl apply -f k8s/deploy/
-          kubectl set image deploy/reservation-api reservation-api=${{ env.ECR_REPO }}:${{ github.sha }}
+      # - name: Deploy manifests
+      #   run: |
+      #     kubectl apply -f k8s/deploy/
+      #     kubectl set image deploy/reservation-api reservation-api=${{ env.ECR_REPO }}:${{ github.sha }}
