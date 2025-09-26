@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends bash unzip git 
 WORKDIR /workspace
 
 # ---- 빌드 인자 ----
-ARG CONTRACTS_MODE=auto         	# auto | local | git | artifact
-ARG CONTRACTS_REF=main          	# git 모드일 때 사용할 브랜치/태그/SHA
+ARG CONTRACTS_MODE=auto         # auto | local | git | artifact
+ARG CONTRACTS_REF=main          # git 모드일 때 사용할 브랜치/태그/SHA
 ARG CONTRACTS_URL=https://github.com/traffic-tacos/proto-contracts.git
 
 # ---- Gradle 스켈레톤/캐시 ----
@@ -66,6 +66,10 @@ USER appuser
 
 # Spring Boot ports
 EXPOSE 8010 8011
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8010/actuator/health || exit 1
 
 # Runtime environment variables
 ENV JAVA_OPTS=""
