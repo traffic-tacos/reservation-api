@@ -15,13 +15,13 @@ ARG CONTRACTS_REF=main          	# git 모드일 때 사용할 브랜치/태그/
 ARG CONTRACTS_URL=https://github.com/traffic-tacos/proto-contracts.git
 
 # ---- Gradle 스켈레톤/캐시 ----
-COPY reservation-api/gradle/ gradle/
-COPY reservation-api/gradlew reservation-api/settings.gradle.kts reservation-api/build.gradle.kts ./
+COPY /gradle/ gradle/
+COPY gradlew settings.gradle.kts build.gradle.kts ./
 RUN chmod +x gradlew && ./gradlew --version
 RUN ./gradlew --no-daemon dependencies || true
 
 # ---- 소스 복사 ----
-COPY reservation-api/src/ src/
+COPY src/ src/
 
 # ---- proto-contracts 주입 (named build-context) ----
 # ✅ 로컬 contracts를 "있으면" 복사하고, 없으면 그냥 빈 컨텍스트로 넘어가게 만든다
