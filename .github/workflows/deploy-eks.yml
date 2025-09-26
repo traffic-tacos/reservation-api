@@ -40,7 +40,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .                              # repo root
-          file: ./reservation-api/Dockerfile
+          file: ./Dockerfile
           build-contexts: |
             contracts=./proto-contracts
           push: true
