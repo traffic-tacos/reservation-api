@@ -43,6 +43,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ./Dockerfile
           push: true
           tags: |
             ${{ env.ECR_REPO }}:${{ github.sha }}
