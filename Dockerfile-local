@@ -10,18 +10,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends bash unzip git 
 WORKDIR /workspace
 
 # ---- 빌드 인자 ----
-ARG CONTRACTS_MODE=auto         	# auto | local | git | artifact
-ARG CONTRACTS_REF=main          	# git 모드일 때 사용할 브랜치/태그/SHA
+ARG CONTRACTS_MODE=auto         # auto | local | git | artifact
+ARG CONTRACTS_REF=main          # git 모드일 때 사용할 브랜치/태그/SHA
 ARG CONTRACTS_URL=https://github.com/traffic-tacos/proto-contracts.git
 
 # ---- Gradle 스켈레톤/캐시 ----
-COPY /gradle/ gradle/
-COPY gradlew settings.gradle.kts build.gradle.kts ./
+COPY reservation-api/gradle/ gradle/
+COPY reservation-api/gradlew reservation-api/settings.gradle.kts reservation-api/build.gradle.kts ./
 RUN chmod +x gradlew && ./gradlew --version
 RUN ./gradlew --no-daemon dependencies || true
 
 # ---- 소스 복사 ----
-COPY src/ src/
+COPY reservation-api/src/ src/
 
 # ---- proto-contracts 주입 (named build-context) ----
 # ✅ 로컬 contracts를 "있으면" 복사하고, 없으면 그냥 빈 컨텍스트로 넘어가게 만든다
@@ -66,6 +66,10 @@ USER appuser
 
 # Spring Boot ports
 EXPOSE 8010 8011
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8010/actuator/health || exit 1
 
 # Runtime environment variables
 ENV JAVA_OPTS=""
