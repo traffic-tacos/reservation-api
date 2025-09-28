@@ -8,7 +8,7 @@ on:
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
-  ECR_REPO: ${{ vars.ECR_BASE_REPO }}/reservation-api
+  ECR_REPO: ${{ vars.ECR_BASE_REPO }}/traffic-tacos-reservation-api
 
 jobs:
   deploy:
