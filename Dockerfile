@@ -70,6 +70,6 @@ EXPOSE 8010 8011
 # Runtime environment variables
 ENV JAVA_OPTS="-javaagent:/app/opentelemetry-javaagent.jar"
 ENV SPRING_PROFILES_ACTIVE="docker"
-ADD https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.20.1/opentelemetry-javaagent.jar  /app/opentelemetry-javaagent.jar
+RUN wget https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar -O /app/opentelemetry-javaagent.jar
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]
