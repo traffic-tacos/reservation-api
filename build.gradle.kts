@@ -98,6 +98,7 @@ dependencies {
 	runtimeOnly("io.micrometer:micrometer-registry-otlp")
 	runtimeOnly("io.micrometer:micrometer-registry-prometheus")
 	runtimeOnly("io.micrometer:micrometer-tracing-bridge-otel")
+	implementation(platform("io.opentelemetry.instrumentation:opentelemetry-instrumentation-bom:2.20.1"))
 
 	// Test Dependencies
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
