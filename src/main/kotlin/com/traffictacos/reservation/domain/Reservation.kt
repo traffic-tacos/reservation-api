@@ -6,9 +6,13 @@ import java.time.Instant
 @DynamoDbBean
 data class Reservation(
     @get:DynamoDbPartitionKey
+    @get:DynamoDbAttribute("pk")
     var reservationId: String = "",
 
+    @get:DynamoDbSortKey
+    @get:DynamoDbAttribute("sk")
     var eventId: String = "",
+    
     var userId: String = "",
     var quantity: Int = 0,
     var seatIds: List<String> = emptyList(),
