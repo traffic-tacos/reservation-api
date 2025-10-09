@@ -4,6 +4,7 @@ import com.traffictacos.reservation.domain.*
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable
@@ -18,7 +19,7 @@ class DynamoDbConfig {
     @Value("\${aws.region:ap-northeast-2}")
     private lateinit var region: String
 
-    @Value("\${aws.profile:tacos}")
+    @Value("\${aws.profile:}")
     private lateinit var profile: String
 
     @Value("\${aws.dynamodb.endpoint:}")
@@ -40,7 +41,13 @@ class DynamoDbConfig {
     fun dynamoDbClient(): DynamoDbClient {
         val builder = DynamoDbClient.builder()
             .region(Region.of(region))
-            .credentialsProvider(ProfileCredentialsProvider.create(profile))
+        
+        // Use profile for local development, DefaultCredentialsProvider for K8s/IRSA
+        if (profile.isNotEmpty()) {
+            builder.credentialsProvider(ProfileCredentialsProvider.create(profile))
+        } else {
+            builder.credentialsProvider(DefaultCredentialsProvider.create())
+        }
 
         // For local development with LocalStack
         if (endpoint.isNotEmpty()) {
