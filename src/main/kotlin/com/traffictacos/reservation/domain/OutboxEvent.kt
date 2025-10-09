@@ -6,9 +6,13 @@ import java.time.Instant
 @DynamoDbBean
 data class OutboxEvent(
     @get:DynamoDbPartitionKey
+    @get:DynamoDbAttribute("pk")
     var outboxId: String = "",
 
+    @get:DynamoDbSortKey
+    @get:DynamoDbAttribute("sk")
     var eventType: String = "",
+    
     var payload: String = "",
     var status: OutboxStatus = OutboxStatus.PENDING,
     var attempts: Int = 0,

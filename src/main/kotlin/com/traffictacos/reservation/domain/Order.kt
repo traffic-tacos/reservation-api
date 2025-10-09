@@ -7,9 +7,13 @@ import java.time.Instant
 @DynamoDbBean
 data class Order(
     @get:DynamoDbPartitionKey
+    @get:DynamoDbAttribute("pk")
     var orderId: String = "",
 
+    @get:DynamoDbSortKey
+    @get:DynamoDbAttribute("sk")
     var reservationId: String = "",
+    
     var eventId: String = "",
     var userId: String = "",
     var amount: BigDecimal = BigDecimal.ZERO,
