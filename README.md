@@ -82,6 +82,533 @@ public Mono<Response> createReservation(CreateReservationRequest request) {
 - **DSL 지원**: Gradle Kotlin DSL, 타입 안전한 빌드 스크립트
 - **Java 상호운용성**: 기존 Spring 생태계 100% 활용
 
+#### 왜 Go가 아니라 Kotlin인가?
+
+**상태 관리와 트랜잭션이 핵심인 예약 시스템에서 Kotlin을 선택한 구체적인 이유**:
+
+##### 1. 풍부한 JVM 생태계 활용
+
+**DynamoDB Enhanced Client (타입 안전한 ORM)**:
+```kotlin
+// ✅ Kotlin: DynamoDB Enhanced Client
+@DynamoDbBean
+data class Reservation(
+    @get:DynamoDbPartitionKey
+    var reservationId: String = "",
+    var status: ReservationStatus = ReservationStatus.PENDING,
+    var holdExpiresAt: Instant? = null,
+    // ... 자동 매핑, 타입 안전성
+)
+
+// 조건부 업데이트로 동시성 제어 (Optimistic Locking)
+val updateRequest = UpdateItemEnhancedRequest.builder(Reservation::class.java)
+    .item(reservation)
+    .conditionExpression(
+        Expression.builder()
+            .expression("attribute_not_exists(reservationId) OR version = :v")
+            .build()
+    )
+    .build()
+
+// ❌ Go: AWS SDK v2 (저수준 API)
+type Reservation struct {
+    ReservationID string    `dynamodbav:"reservationId"`
+    Status        string    `dynamodbav:"status"`
+    HoldExpiresAt *time.Time `dynamodbav:"holdExpiresAt,omitempty"`
+}
+
+// 수동 마샬링/언마샬링
+av, err := attributevalue.MarshalMap(reservation)
+if err != nil { /* 에러 처리 */ }
+// 조건 표현식을 문자열로 직접 작성
+```
+
+**Spring Security (선언적 보안)**:
+```kotlin
+// ✅ Kotlin: Spring Security OAuth2 Resource Server
+@Configuration
+@EnableWebFluxSecurity
+class SecurityConfig {
+    @Bean
+    fun securityWebFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
+        return http
+            .authorizeExchange { exchanges ->
+                exchanges
+                    .pathMatchers("/actuator/**").permitAll()
+                    .pathMatchers("/v1/**").authenticated()  // JWT 자동 검증
+                    .anyExchange().authenticated()
+            }
+            .oauth2ResourceServer { oauth2 ->
+                oauth2.jwt { jwt -> jwt.jwtDecoder(jwtDecoder()) }
+            }
+            .build()
+    }
+}
+
+@RestController
+class ReservationController(
+    private val reservationService: ReservationService
+) {
+    @PostMapping("/v1/reservations")
+    suspend fun createReservation(
+        @AuthenticationPrincipal jwt: Jwt,  // 자동 주입
+        @RequestBody request: CreateReservationRequest
+    ): ResponseEntity<CreateReservationResponse> {
+        val userId = jwt.getClaimAsString("sub")  // 타입 안전
+        // ...
+    }
+}
+
+// ❌ Go: 수동 JWT 검증 미들웨어
+func JWTMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        tokenString := c.GetHeader("Authorization")
+        // 수동 파싱 및 검증
+        token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+            // 검증 로직 직접 구현
+        })
+        if err != nil || !token.Valid {
+            c.JSON(401, gin.H{"error": "Unauthorized"})
+            c.Abort()
+            return
+        }
+        // Context에 수동 저장
+        c.Set("userId", claims["sub"])
+        c.Next()
+    }
+}
+```
+
+**Resilience4j (장애 복원력 패턴)**:
+```kotlin
+// ✅ Kotlin: Resilience4j (선언적 + 통합)
+@Service
+class InventoryGrpcService(
+    @GrpcClient("inventory-service")
+    private val inventoryStub: InventoryServiceCoroutineStub
+) {
+    @CircuitBreaker(name = "inventory-grpc")  // 애노테이션 기반
+    @TimeLimiter(name = "inventory-grpc")
+    @Retry(name = "inventory-grpc")
+    suspend fun checkAvailability(
+        request: CheckAvailabilityRequest
+    ): CheckAvailabilityResponse {
+        return inventoryStub.checkAvailability(request)
+    }
+}
+
+// application.properties에서 설정
+resilience4j.circuitbreaker.instances.inventory-grpc.failure-rate-threshold=50
+resilience4j.timelimiter.instances.inventory-grpc.timeout-duration=250ms
+
+// ❌ Go: 직접 구현 또는 별도 라이브러리
+type CircuitBreaker struct {
+    maxFailures int
+    timeout     time.Duration
+    // ... 상태 관리 필드
+}
+
+func (cb *CircuitBreaker) Call(fn func() error) error {
+    // Circuit Breaker 로직 직접 구현
+    if cb.isOpen() {
+        return ErrCircuitOpen
+    }
+    // ...
+}
+
+// 사용할 때마다 수동 래핑
+err := circuitBreaker.Call(func() error {
+    return inventoryClient.CheckAvailability(ctx, req)
+})
+```
+
+##### 2. Data Class와 불변성 기반 상태 관리
+
+```kotlin
+// ✅ Kotlin: Data class (불변성 + 타입 안전)
+data class Reservation(
+    val reservationId: String,
+    val eventId: String,
+    val userId: String,
+    val status: ReservationStatus,      // Enum 타입 안전
+    val holdExpiresAt: Instant?,        // Null 안전
+    val seatIds: List<String>           // 불변 리스트
+) {
+    // equals/hashCode/toString 자동 생성
+    // copy() 메서드로 불변 수정
+}
+
+// 상태 변경 (불변 방식)
+val updatedReservation = reservation.copy(
+    status = ReservationStatus.CONFIRMED,
+    updatedAt = Instant.now()
+)
+
+// ❌ Go: Struct (가변 + 수동 관리)
+type Reservation struct {
+    ReservationID string
+    EventID       string
+    UserID        string
+    Status        string          // 문자열 (타입 안전 X)
+    HoldExpiresAt *time.Time      // 포인터 (nil 체크 필요)
+    SeatIDs       []string         // 가변 슬라이스
+}
+
+// 상태 변경 (가변 방식)
+reservation.Status = "CONFIRMED"  // 오타 가능성
+reservation.UpdatedAt = time.Now()
+
+// 복사를 위한 보일러플레이트
+func (r *Reservation) Copy() *Reservation {
+    seatsCopy := make([]string, len(r.SeatIDs))
+    copy(seatsCopy, r.SeatIDs)
+    return &Reservation{
+        ReservationID: r.ReservationID,
+        // ... 모든 필드 수동 복사
+    }
+}
+```
+
+##### 3. Coroutine을 활용한 구조적 동시성
+
+```kotlin
+// ✅ Kotlin: Structured Concurrency
+suspend fun createReservation(request: CreateReservationRequest): Response {
+    // 병렬 호출 (구조화된 동시성)
+    coroutineScope {
+        val availabilityDeferred = async { 
+            inventoryService.checkAvailability(request) 
+        }
+        val userValidationDeferred = async { 
+            userService.validateUser(request.userId) 
+        }
+        
+        // 자동 에러 전파, 취소 전파
+        val availability = availabilityDeferred.await()
+        val userValid = userValidationDeferred.await()
+    }
+    
+    // 순차 호출 (동기 스타일)
+    val reservation = reservationRepository.save(...)
+    reservationExpiryService.scheduleExpiry(...)
+    return Response(reservation)
+}
+
+// ❌ Go: Goroutine + WaitGroup (수동 관리)
+func createReservation(ctx context.Context, req CreateReservationRequest) (Response, error) {
+    var wg sync.WaitGroup
+    var availability AvailabilityResponse
+    var userValid bool
+    var availErr, userErr error
+    
+    // 병렬 호출
+    wg.Add(2)
+    go func() {
+        defer wg.Done()
+        availability, availErr = inventoryService.CheckAvailability(ctx, req)
+    }()
+    go func() {
+        defer wg.Done()
+        userValid, userErr = userService.ValidateUser(ctx, req.UserID)
+    }()
+    wg.Wait()
+    
+    // 에러 수동 체크
+    if availErr != nil { return Response{}, availErr }
+    if userErr != nil { return Response{}, userErr }
+    // ...
+}
+```
+
+##### 4. 멱등성 구현의 우아함
+
+```kotlin
+// ✅ Kotlin: 고차 함수 + Suspend
+@Service
+class IdempotencyService(
+    private val idempotencyRepository: IdempotencyRepository,
+    private val objectMapper: ObjectMapper
+) {
+    suspend fun <T : Any, R : Any> executeIdempotent(
+        idempotencyKey: String,
+        request: T,
+        operation: suspend () -> R  // Suspend 람다
+    ): R {
+        val requestHash = createHash(objectMapper.writeValueAsString(request))
+        val existing = idempotencyRepository.findByKey(idempotencyKey)
+        
+        return if (existing != null && existing.requestHash == requestHash) {
+            objectMapper.readValue(existing.responseSnapshot)
+        } else {
+            val result = operation()  // 람다 실행
+            idempotencyRepository.saveWithTtl(idempotencyKey, requestHash, result)
+            result
+        }
+    }
+}
+
+// 사용: 간결한 람다 표현
+val response = idempotencyService.executeIdempotent(
+    idempotencyKey = idempotencyKey,
+    request = request
+) {
+    reservationService.createReservation(request, userId, idempotencyKey)
+}
+
+// ❌ Go: Interface 기반 (보일러플레이트)
+type IdempotentOperation func(context.Context) (interface{}, error)
+
+func (s *IdempotencyService) ExecuteIdempotent(
+    ctx context.Context,
+    key string,
+    request interface{},
+    operation IdempotentOperation,
+) (interface{}, error) {
+    requestBytes, _ := json.Marshal(request)
+    requestHash := sha256Hash(requestBytes)
+    
+    existing, err := s.repo.FindByKey(ctx, key)
+    if err != nil { return nil, err }
+    
+    if existing != nil && existing.RequestHash == requestHash {
+        var result interface{}
+        json.Unmarshal([]byte(existing.ResponseSnapshot), &result)
+        return result, nil
+    }
+    
+    result, err := operation(ctx)  // 함수 실행
+    if err != nil { return nil, err }
+    // ...
+}
+
+// 사용: 타입 캐스팅 필요
+result, err := idempotencyService.ExecuteIdempotent(
+    ctx, key, request,
+    func(ctx context.Context) (interface{}, error) {
+        return reservationService.CreateReservation(ctx, request)
+    },
+)
+response := result.(CreateReservationResponse)  // 타입 캐스팅
+```
+
+##### 5. 통합된 관측 가능성
+
+```kotlin
+// ✅ Kotlin: Spring Boot Actuator + Micrometer (자동 통합)
+// application.properties
+management.endpoints.web.exposure.include=health,info,metrics,prometheus
+management.metrics.export.prometheus.enabled=true
+management.tracing.sampling.probability=1.0
+
+// 커스텀 메트릭 추가 (간단)
+@Service
+class ReservationService(
+    private val meterRegistry: MeterRegistry
+) {
+    private val reservationCounter = meterRegistry.counter(
+        "reservation.created.total",
+        Tags.of("status", "success")
+    )
+    
+    suspend fun createReservation(...) {
+        // ...
+        reservationCounter.increment()
+    }
+}
+
+// 자동으로 제공되는 메트릭:
+// - http_server_requests_* (HTTP 요청/응답)
+// - jvm_memory_*, jvm_gc_* (JVM 메트릭)
+// - hikaricp_* (DB 커넥션 풀)
+
+// ❌ Go: 수동 계측
+import "github.com/prometheus/client_golang/prometheus"
+
+var reservationCounter = prometheus.NewCounterVec(
+    prometheus.CounterOpts{
+        Name: "reservation_created_total",
+        Help: "Total number of reservations created",
+    },
+    []string{"status"},
+)
+
+func init() {
+    prometheus.MustRegister(reservationCounter)  // 수동 등록
+}
+
+func (s *ReservationService) CreateReservation(ctx context.Context, req Request) error {
+    // ...
+    reservationCounter.WithLabelValues("success").Inc()
+}
+
+// HTTP 엔드포인트 수동 추가
+http.Handle("/metrics", promhttp.Handler())
+```
+
+##### 6. 트랜잭션과 롤백 처리
+
+```kotlin
+// ✅ Kotlin: Spring의 선언적 트랜잭션 (일관된 패턴)
+@Service
+class ReservationService(
+    private val reservationRepository: ReservationRepository,
+    private val outboxRepository: OutboxRepository
+) {
+    @Transactional  // 선언적 트랜잭션
+    suspend fun createReservation(...): Response {
+        // 1. 예약 저장
+        val reservation = reservationRepository.save(...)
+        
+        // 2. Outbox 이벤트 저장 (같은 트랜잭션)
+        val outboxEvent = OutboxEvent(
+            eventType = "reservation.created",
+            payload = objectMapper.writeValueAsString(reservation)
+        )
+        outboxRepository.save(outboxEvent)
+        
+        // 에러 발생 시 자동 롤백
+        if (reservation.seatIds.isEmpty()) {
+            throw IllegalArgumentException("No seats selected")
+        }
+        
+        return Response(reservation)
+    }
+}
+
+// ❌ Go: 수동 트랜잭션 관리 (DynamoDB TransactWriteItems)
+func (s *ReservationService) CreateReservation(ctx context.Context, req Request) error {
+    // DynamoDB 트랜잭션 직접 구성
+    transactItems := []*dynamodb.TransactWriteItem{
+        {
+            Put: &dynamodb.Put{
+                TableName: aws.String("reservations"),
+                Item:      reservationItem,
+            },
+        },
+        {
+            Put: &dynamodb.Put{
+                TableName: aws.String("outbox"),
+                Item:      outboxItem,
+            },
+        },
+    }
+    
+    _, err := s.dynamoClient.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+        TransactItems: transactItems,
+    })
+    
+    if err != nil {
+        // 수동 에러 처리
+        return fmt.Errorf("transaction failed: %w", err)
+    }
+    return nil
+}
+```
+
+##### 7. 예외 처리와 에러 매핑
+
+```kotlin
+// ✅ Kotlin: 전역 예외 핸들러 (일관된 에러 응답)
+@RestControllerAdvice
+class GlobalExceptionHandler {
+    @ExceptionHandler(ReservationException::class)
+    fun handleReservationException(ex: ReservationException): ResponseEntity<ErrorResponse> {
+        return ResponseEntity
+            .status(ex.errorCode.httpStatus)
+            .body(ErrorResponse(
+                code = ex.errorCode.name,
+                message = ex.message,
+                timestamp = Instant.now()
+            ))
+    }
+    
+    // 다른 예외도 일괄 처리
+}
+
+// 비즈니스 로직에서 단순히 예외 던지기
+class ReservationException(
+    val errorCode: ErrorCode,
+    override val message: String
+) : Exception(message)
+
+suspend fun confirmReservation(...) {
+    if (reservation.status == ReservationStatus.EXPIRED) {
+        throw ReservationException(
+            ErrorCode.RESERVATION_EXPIRED,
+            "Reservation has expired"
+        )
+    }
+}
+
+// ❌ Go: 에러를 명시적으로 반환하고 각 계층에서 처리
+type ReservationError struct {
+    Code    string
+    Message string
+}
+
+func (e *ReservationError) Error() string {
+    return e.Message
+}
+
+func (s *ReservationService) ConfirmReservation(ctx context.Context, req Request) error {
+    if reservation.Status == "EXPIRED" {
+        return &ReservationError{
+            Code:    "RESERVATION_EXPIRED",
+            Message: "Reservation has expired",
+        }
+    }
+    return nil
+}
+
+// HTTP 핸들러에서 에러 매핑
+func (h *Handler) ConfirmReservation(c *gin.Context) {
+    err := h.service.ConfirmReservation(c.Request.Context(), req)
+    if err != nil {
+        var resErr *ReservationError
+        if errors.As(err, &resErr) {
+            c.JSON(getHTTPStatus(resErr.Code), gin.H{
+                "error": resErr.Message,
+            })
+            return
+        }
+        c.JSON(500, gin.H{"error": "Internal server error"})
+        return
+    }
+    // ...
+}
+```
+
+##### 결론: 왜 Kotlin이 예약 시스템에 적합한가?
+
+| 측면 | Kotlin + Spring Boot | Go |
+|-----|---------------------|-----|
+| **상태 관리** | Data class, 불변성, Copy | Struct, 가변성, 수동 복사 |
+| **트랜잭션** | @Transactional, 선언적 | 수동 트랜잭션 구성 |
+| **ORM/매핑** | DynamoDB Enhanced Client | 저수준 SDK, 수동 마샬링 |
+| **보안** | Spring Security 통합 | 미들웨어 직접 구현 |
+| **복원력** | Resilience4j 통합 | Circuit Breaker 직접 구현 |
+| **관측성** | Actuator + Micrometer | 수동 계측 |
+| **동시성** | Coroutine (구조적) | Goroutine (수동 관리) |
+| **에러 처리** | 전역 예외 핸들러 | 명시적 반환 + 매핑 |
+
+**예약 시스템의 핵심 요구사항**:
+- ✅ **복잡한 상태 전이**: PENDING → HOLD → CONFIRMED/EXPIRED
+- ✅ **트랜잭션 일관성**: 예약 + Outbox 이벤트 원자성
+- ✅ **강타입 안전성**: Enum 상태, Null 안전, Data class
+- ✅ **풍부한 라이브러리**: DynamoDB Enhanced, Spring Security, Resilience4j
+
+**Go의 강점이 빛나는 곳** (우리 프로젝트의 inventory-api가 Go인 이유):
+- 단순한 CRUD, 고성능 게이트웨이
+- 시스템 레벨 프로그래밍
+- 가벼운 마이크로서비스 (메모리 < 50MB)
+- 컴파일 속도와 배포 단순성
+
+**Kotlin의 강점이 빛나는 곳** (reservation-api가 Kotlin인 이유):
+- 복잡한 비즈니스 로직과 상태 관리
+- 풍부한 생태계 활용 (Spring, AWS SDK Enhanced)
+- 타입 안전성과 불변성 중심 설계
+- 선언적 프로그래밍 (트랜잭션, 보안, 복원력)
+
 #### WebFlux의 선택 이유
 ```
 전통적인 Servlet Stack (Thread-per-Request)
