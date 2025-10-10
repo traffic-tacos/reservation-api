@@ -1,8 +1,10 @@
 package com.traffictacos.reservation.repository
 
 import com.traffictacos.reservation.domain.Reservation
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.mono
+import kotlinx.coroutines.withContext
 import org.springframework.stereotype.Repository
 import reactor.core.publisher.Mono
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable
@@ -35,16 +37,28 @@ class ReservationRepository(
         null
     }
 
-    suspend fun saveAsync(reservation: Reservation): Reservation {
+    /**
+     * 비동기적으로 예약을 저장합니다.
+     * 
+     * DynamoDB Enhanced Client는 블로킹 API이므로,
+     * Dispatchers.IO 컨텍스트에서 실행하여 Event Loop 스레드를 블로킹하지 않습니다.
+     */
+    suspend fun saveAsync(reservation: Reservation): Reservation = withContext(Dispatchers.IO) {
         reservationTable.putItem(reservation)
-        return reservation
+        reservation
     }
 
-    suspend fun findByIdAsync(reservationId: String): Reservation? {
+    /**
+     * 비동기적으로 예약을 조회합니다.
+     * 
+     * DynamoDB Enhanced Client는 블로킹 API이므로,
+     * Dispatchers.IO 컨텍스트에서 실행하여 Event Loop 스레드를 블로킹하지 않습니다.
+     */
+    suspend fun findByIdAsync(reservationId: String): Reservation? = withContext(Dispatchers.IO) {
         val key = Key.builder()
             .partitionValue(reservationId)
             .build()
 
-        return reservationTable.getItem(key)
+        reservationTable.getItem(key)
     }
 }

@@ -1,7 +1,9 @@
 package com.traffictacos.reservation.repository
 
 import com.traffictacos.reservation.domain.Idempotency
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.reactor.mono
+import kotlinx.coroutines.withContext
 import org.springframework.stereotype.Repository
 import reactor.core.publisher.Mono
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable
@@ -26,7 +28,16 @@ class IdempotencyRepository(
         idempotencyTable.getItem(key)
     }
 
-    suspend fun saveWithTtl(idempotencyKey: String, requestHash: String, responseSnapshot: String): Idempotency {
+    /**
+     * TTL과 함께 멱등성 레코드를 저장합니다 (5분 TTL).
+     * 
+     * Dispatchers.IO에서 실행하여 WebFlux Event Loop 스레드를 블로킹하지 않습니다.
+     */
+    suspend fun saveWithTtl(
+        idempotencyKey: String,
+        requestHash: String,
+        responseSnapshot: String
+    ): Idempotency = withContext(Dispatchers.IO) {
         val ttl = Instant.now().plusSeconds(300).epochSecond // 5 minutes TTL
         val idempotency = Idempotency(
             idempotencyKey = idempotencyKey,
@@ -36,14 +47,19 @@ class IdempotencyRepository(
         )
 
         idempotencyTable.putItem(idempotency)
-        return idempotency
+        idempotency
     }
 
-    suspend fun findByKeyAsync(idempotencyKey: String): Idempotency? {
+    /**
+     * 멱등성 키로 레코드를 조회합니다.
+     * 
+     * Dispatchers.IO에서 실행하여 WebFlux Event Loop 스레드를 블로킹하지 않습니다.
+     */
+    suspend fun findByKeyAsync(idempotencyKey: String): Idempotency? = withContext(Dispatchers.IO) {
         val key = Key.builder()
             .partitionValue(idempotencyKey)
             .build()
 
-        return idempotencyTable.getItem(key)
+        idempotencyTable.getItem(key)
     }
 }
