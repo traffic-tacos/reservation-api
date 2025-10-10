@@ -829,6 +829,179 @@ dynamoDbTable.updateItem(
 - **완전 관리형**: 프로비저닝, 백업, 복구 자동화
 - **이벤트 스트리밍**: DynamoDB Streams로 변경 캡처
 
+#### DynamoDB vs 다른 NoSQL 데이터베이스
+
+**예약 시스템에서 왜 MongoDB, Cassandra, Redis가 아닌 DynamoDB인가?**
+
+| 측면 | DynamoDB | MongoDB | Cassandra | Redis |
+|-----|---------|---------|-----------|-------|
+| **확장성** | 자동 샤딩, 무제한 | 수동 샤딩 설정 | 수동 토폴로지 | 수동 클러스터 관리 |
+| **레이턴시** | ~5ms (일관성) | ~10-50ms | ~10-30ms | ~1ms (메모리) |
+| **일관성** | 강한 일관성 옵션 | 튜닝 가능 | 최종 일관성 | 강한 일관성 |
+| **관리 오버헤드** | 0% (완전 관리형) | 높음 (Atlas 제외) | 매우 높음 | 높음 |
+| **조건부 업데이트** | ✅ 네이티브 지원 | ⚠️ findAndModify (성능 이슈) | ❌ 지원 안 함 | ✅ WATCH/MULTI |
+| **트랜잭션** | ✅ ACID (최대 100개 항목) | ✅ Multi-document | ❌ Lightweight TX만 | ✅ MULTI/EXEC |
+| **이벤트 스트림** | ✅ DynamoDB Streams | ✅ Change Streams | ❌ 없음 | ✅ Pub/Sub |
+| **TTL** | ✅ 자동 삭제 (무료) | ✅ 수동 인덱스 | ✅ 수동 설정 | ✅ EXPIRE |
+| **백업/복구** | ✅ 자동 + PITR | ⚠️ 수동 설정 | ⚠️ 복잡한 복구 | ⚠️ RDB/AOF |
+| **비용** | 사용량 기반 | 인스턴스 기반 | 인스턴스 기반 | 인스턴스 기반 |
+
+##### 1. MongoDB를 선택하지 않은 이유
+
+**❌ 샤딩 복잡성**:
+```javascript
+// MongoDB: 수동 샤딩 구성 필요
+sh.enableSharding("reservations")
+sh.shardCollection(
+  "reservations.reservations",
+  { reservationId: "hashed" },  // 샤드 키 선택 중요
+  false,
+  { numInitialChunks: 1024 }    // 사전 분할
+)
+
+// DynamoDB: 자동 샤딩, 설정 불필요
+// 파티션 키만 정의하면 자동 분산
+```
+
+**❌ 조건부 업데이트 성능**:
+```javascript
+// MongoDB: findAndModify (두 단계 작업)
+db.reservations.findAndModify({
+  query: { reservationId: "rsv_123", status: "HOLD" },
+  update: { $set: { status: "CONFIRMED" } },
+  new: true
+})
+// 문제: 문서 잠금 → 경합 발생, 성능 저하
+
+// DynamoDB: 조건부 업데이트 (원자적)
+UpdateItem with ConditionExpression: "status = HOLD"
+// 낙관적 잠금, 경합 최소화
+```
+
+**❌ 관리 오버헤드**:
+```
+MongoDB Self-hosted:
+├─ Replica Set 구성 (Primary + Secondary)
+├─ 샤드 클러스터 관리 (Config Server + Mongos)
+├─ 백업 스크립트 작성 (mongodump)
+├─ 모니터링 설정 (Ops Manager)
+└─ OS 패치, 업그레이드
+
+DynamoDB:
+└─ 테이블 생성 → 끝 (AWS가 모든 관리)
+```
+
+##### 2. Cassandra를 선택하지 않은 이유
+
+**❌ 조건부 업데이트 미지원**:
+```cql
+-- Cassandra: LWT (Lightweight Transaction) 제한적
+UPDATE reservations 
+SET status = 'CONFIRMED' 
+WHERE reservation_id = 'rsv_123' 
+IF status = 'HOLD';  -- 성능 매우 느림 (Paxos 프로토콜)
+
+-- DynamoDB: 조건부 업데이트 최적화됨
+-- 네이티브로 지원, 빠른 성능
+```
+
+**❌ 이벤트 스트리밍 부재**:
+```
+Cassandra:
+├─ Change Data Capture 없음
+├─ 외부 CDC 도구 필요 (Debezium 등)
+└─ 복잡한 통합
+
+DynamoDB:
+└─ DynamoDB Streams (네이티브 CDC)
+```
+
+**❌ 운영 복잡도**:
+```
+Cassandra 운영:
+├─ 노드 추가/제거 (Rebalancing 필요)
+├─ Gossip 프로토콜 모니터링
+├─ Compaction 전략 튜닝
+├─ Tombstone GC 관리
+└─ 수동 백업/복구
+
+DynamoDB:
+└─ 버튼 클릭으로 테이블 생성 → 자동 확장
+```
+
+##### 3. Redis를 선택하지 않은 이유
+
+**❌ 내구성 문제**:
+```
+Redis:
+├─ In-memory → 재시작 시 데이터 유실 위험
+├─ RDB 스냅샷: 주기적 저장 (데이터 손실 가능)
+├─ AOF: 쓰기 성능 저하
+└─ 복제본 관리 필요
+
+DynamoDB:
+└─ 디스크 기반, 자동 복제 (3 AZ), 99.99% 내구성
+```
+
+**❌ 메모리 비용**:
+```
+30k RPS, 평균 1KB 예약 데이터:
+- 1시간 예약 데이터: 30k × 60 × 60 × 1KB = 108 GB
+- Redis: 108GB RAM 필요 → $$$
+- DynamoDB: On-demand 모드, 실제 사용량만 과금 → $
+```
+
+**✅ Redis의 적절한 용도** (우리 프로젝트에서):
+- 대기열 상태 (일시적 데이터)
+- 세션 캐시
+- Idempotency Key 캐시 (5분 TTL)
+
+##### 4. DynamoDB가 예약 시스템에 최적인 이유
+
+**핵심 요구사항 매칭**:
+
+| 요구사항 | DynamoDB | MongoDB | Cassandra | Redis |
+|---------|---------|---------|-----------|-------|
+| **30k RPS 처리** | ✅ 자동 확장 | ⚠️ 샤딩 필요 | ⚠️ 복잡한 설정 | ✅ 메모리 제한 |
+| **오버셀 방지** | ✅ 조건부 업데이트 | ⚠️ findAndModify | ❌ LWT 느림 | ✅ WATCH |
+| **강한 일관성** | ✅ Strong Consistency | ✅ 가능 | ❌ 최종 일관성 | ✅ 가능 |
+| **운영 부담** | ✅ 완전 관리형 | ❌ 높음 | ❌ 매우 높음 | ❌ 높음 |
+| **이벤트 발행** | ✅ Streams | ✅ Change Streams | ❌ 없음 | ✅ Pub/Sub |
+| **비용 효율** | ✅ 사용량 기반 | ❌ 항상 실행 | ❌ 항상 실행 | ❌ 메모리 비싸 |
+
+**실제 운영 시나리오**:
+
+```
+새벽 2시 (트래픽 낮음):
+- DynamoDB: 읽기 10 RPS → $0.00025/RPS = $0.0025/시간
+- MongoDB: t3.large 인스턴스 실행 중 → $0.0832/시간 (유휴 상태)
+
+저녁 8시 (트래픽 폭주, 30k RPS):
+- DynamoDB: 자동 확장 → 30k RPS 처리
+- MongoDB: 샤드 추가 필요 → 수동 스케일링 (수 시간 소요)
+```
+
+**AWS 생태계 통합**:
+```
+DynamoDB와 완벽하게 통합되는 서비스:
+├─ EventBridge: DynamoDB Streams → 이벤트 자동 발행
+├─ Lambda: Streams 트리거로 서버리스 처리
+├─ CloudWatch: 자동 메트릭 수집 (읽기/쓰기 용량, 스로틀링)
+├─ IAM: 세밀한 권한 제어 (테이블/항목 레벨)
+├─ Backup: 자동 백업, PITR (Point-in-Time Recovery)
+└─ Global Tables: 다중 리전 자동 복제
+```
+
+**결론**:
+- ✅ **DynamoDB**: 예약 시스템의 핵심 DB (영구 저장, 강한 일관성, 조건부 업데이트)
+- ✅ **Redis**: 보조 캐시 (대기열, 세션, Idempotency Key)
+- ❌ **MongoDB**: 샤딩 복잡도와 관리 오버헤드가 크다
+- ❌ **Cassandra**: 조건부 업데이트 성능이 부족하고 운영이 어렵다
+
+**우리의 선택**: 
+> "완전 관리형으로 30k RPS를 안정적으로 처리하고,  
+> 팀이 비즈니스 로직에만 집중할 수 있는 DynamoDB를 선택했습니다."
+
 ### 4. 왜 이벤트 기반 아키텍처인가?
 
 #### 동기 vs 비동기 아키텍처
